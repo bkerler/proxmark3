@@ -15,6 +15,9 @@ ISO14443A (usually NFC tags)
     95 20 = Anticollision of cascade level2
     95 70 = Select of cascade level2
     50 00 = Halt (usage: 5000+2bytes ISO14443A-CRC - no answer from card)
+
+    E0 = RATS
+    D0 = PPS
 Mifare
     60 = Authenticate with KeyA
     61 = Authenticate with KeyB
@@ -135,7 +138,7 @@ ISO 7816-4 Basic interindustry commands. For command APDU's.
 #define ICLASS_CMD_ACT              0xE
 
 #define ICLASS_CREDIT(x)            (((x) & 0x10) == 0x10)
-#define ICLASS_DEBIT(x)             !(ICLASS_CREDIT(x))
+#define ICLASS_DEBIT(x)             (((x) & 0x80) == 0x80)
 
 
 #define ISO14443A_CMD_REQA          0x26
@@ -148,6 +151,7 @@ ISO 7816-4 Basic interindustry commands. For command APDU's.
 #define ISO14443A_CMD_WRITEBLOCK    0xA0
 #define ISO14443A_CMD_HALT          0x50
 #define ISO14443A_CMD_RATS          0xE0
+#define ISO14443A_CMD_PPS           0xD0
 #define ISO14443A_CMD_NXP_DESELECT  0xC2
 
 #define MIFARE_SELECT_CT            0x88
@@ -156,8 +160,8 @@ ISO 7816-4 Basic interindustry commands. For command APDU's.
 #define MIFARE_MAGICWUPC1           0x40
 #define MIFARE_MAGICWUPC2           0x43
 #define MIFARE_MAGICWIPEC           0x41
-#define MIFARE_CMD_INC              0xC0
-#define MIFARE_CMD_DEC              0xC1
+#define MIFARE_CMD_DEC              0xC0
+#define MIFARE_CMD_INC              0xC1
 #define MIFARE_CMD_RESTORE          0xC2
 #define MIFARE_CMD_TRANSFER         0xB0
 
@@ -184,7 +188,7 @@ ISO 7816-4 Basic interindustry commands. For command APDU's.
 
 // New Mifare UL Nano commands.  Ref:: (https://www.nxp.com/docs/en/data-sheet/MF0UN_H_00.pdf)
 #define MIFARE_ULNANO_WRITESIG      0xA9
-#define MIFARE_ULNANO_LOCKSIF       0xAC
+#define MIFARE_ULNANO_LOCKSIG       0xAC
 
 // mifare 4bit card answers
 #define CARD_ACK      0x0A  // 1010 - ACK
@@ -211,10 +215,13 @@ ISO 7816-4 Basic interindustry commands. For command APDU's.
 #define MAGIC_SINGLE                (MAGIC_WUPC | MAGIC_HALT | MAGIC_INIT | MAGIC_OFF) //0x1E
 
 // by CMD_HF_MIFARE_CIDENT
-#define MAGIC_GEN_1A 1
-#define MAGIC_GEN_1B 2
-#define MAGIC_GEN_2  4
-#define MAGIC_GEN_UNFUSED 5
+#define MAGIC_GEN_1A        1
+#define MAGIC_GEN_1B        2
+#define MAGIC_GEN_2         4
+#define MAGIC_GEN_UNFUSED   5
+#define MAGIC_SUPER         6
+#define MAGIC_NTAG21X       7
+#define MAGIC_GEN_3         8
 /**
 06 00 = INITIATE
 0E xx = SELECT ID (xx = Chip-ID)
@@ -239,6 +246,50 @@ ISO 7816-4 Basic interindustry commands. For command APDU's.
 #define ISO14443B_AUTHENTICATE 0x0A
 #define ISO14443B_PING         0xBA
 #define ISO14443B_PONG         0xAB
+
+// ASK C-ticket
+#define ASK_REQT               0x10
+#define ASK_IDENTIFY           0x0F
+#define ASK_SELECT             0x9F
+#define ASK_MULTREAD           (0x1 << 4) // High nibble
+#define ASK_UPDATE             (0x3 << 4) // High nibble
+#define ASK_WRITE              (0x5 << 4) // High nibble
+#define ASK_READ               (0x6 << 4) // High nibble
+#define ASK_DESACTIVATE        0xF0
+
+
+// defined crypto RF commands
+// only interpreting channel 1 communication
+#define CRYPTORF_SET_USER_ZONE      0x11
+#define CRYPTORF_READ_USER_ZONE     0x12
+#define CRYPTORF_WRITE_USER_ZONE    0x13
+#define CRYPTORF_WRITE_SYSTEM_ZONE  0x14
+#define CRYPTORF_READ_SYSTEM_ZONE   0x16
+#define CRYPTORF_VERIFY_CRYPTO      0x18
+#define CRYPTORF_SEND_CHECKSUM      0x19
+#define CRYPTORF_DESELECT           0x1A
+#define CRYPTORF_IDLE               0x1B
+#define CRYPTORF_CHECK_PASSWORD     0x1C
+
+// defined Crypto RF errors
+#define CRYPTORF_ERR_ACCESS_DENIED_ZONE               0x99
+#define CRYPTORF_ERR_PARAM_INVALID                    0xA1
+#define CRYPTORF_ERR_ADDRES_INVALID                   0xA2
+#define CRYPTORF_ERR_LENGTH_INVALID                   0xA3
+#define CRYPTORF_ERR_AUTH_ENC_REQ                     0xA9
+#define CRYPTORF_ERR_ACCESS_DENIED_WLOCK              0xB9
+#define CRYPTORF_ERR_BYTE_ACCESS_DENIED_NOT_ALLOWED   0xBA
+#define CRYPTORF_ERR_ACCESS_DENIED_NOT_ALLOWED        0xBA
+#define CRYPTORF_ERR_BYTE_ACCESS_DENIED_PASSWD_REQ    0xBC
+#define CRYPTORF_ERR_CHECKSUM_FAIL2                   0xC8
+#define CRYPTORF_ERR_CHECKSUM_FAIL                    0xC9
+#define CRYPTORF_ERR_PASSWD_REQ                       0xD9
+#define CRYPTORF_ERR_FUSE_ACCESS_DENIED               0xDF
+#define CRYPTORF_ERR_MODIFY_FORBIDDEN                 0xE9
+#define CRYPTORF_ERR_ACCESS_DENIED_FUSE_ORDR          0xE9
+#define CRYPTORF_ERR_MEMORY_WRITE_DATA_M              0xED
+#define CRYPTORF_ERR_MEMORY_ACCESS                    0xEE
+#define CRYPTORF_ERR_MEMORY_ACCESS_SEC                0xF9
 
 //First byte is 26
 #define ISO15693_INVENTORY     0x01
@@ -297,7 +348,6 @@ ISO 7816-4 Basic interindustry commands. For command APDU's.
 #define TOPAZ_WRITE_E8                0x54 // Write-with-erase (eight bytes)
 #define TOPAZ_WRITE_NE8               0x1B // Write-no-erase (eight bytes)
 
-
 // Definitions of which protocol annotations there are available
 #define ISO_14443A       0
 #define ICLASS           1
@@ -314,8 +364,9 @@ ISO 7816-4 Basic interindustry commands. For command APDU's.
 #define LTO             12
 #define PROTO_HITAG2    13
 #define PROTO_HITAGS    14
+#define PROTO_CRYPTORF  15
 
-//-- Picopass fuses
+// Picopass fuses
 #define FUSE_FPERS   0x80
 #define FUSE_CODING1 0x40
 #define FUSE_CODING0 0x20
@@ -324,6 +375,11 @@ ISO 7816-4 Basic interindustry commands. For command APDU's.
 #define FUSE_FPROD1  0x04
 #define FUSE_FPROD0  0x02
 #define FUSE_RA      0x01
+
+// Picopass Pagemode fuses
+#define PICOPASS_NON_SECURE_PAGEMODE 0x01
+#define PICOPASS_SECURE_PAGEMODE     0x11
+
 
 // ISO 7816-4 Basic interindustry commands. For command APDU's.
 #define ISO7816_READ_BINARY             0xB0
@@ -353,6 +409,9 @@ ISO 7816-4 Basic interindustry commands. For command APDU's.
 #define MFDES_AUTHENTICATE_ISO          0x1A  // AUTHENTICATE_STANDARD
 #define MFDES_AUTHENTICATE_AES          0xAA
 
+#define MFDES_AUTHENTICATE_EV2F         0x71
+#define MFDES_AUTHENTICATE_EV2NF        0x77
+
 #define MFDES_CREDIT                    0x0C
 #define MFDES_LIMITED_CREDIT            0x1C
 #define MFDES_WRITE_RECORD              0x3B
@@ -361,11 +420,15 @@ ISO 7816-4 Basic interindustry commands. For command APDU's.
 #define MFDES_GET_KEY_SETTINGS          0x45
 #define MFDES_GET_UID                   0x51
 #define MFDES_CHANGE_KEY_SETTINGS       0x54
+#define MFDES_ROLL_KEY_SETTINGS         0x55
+#define MFDES_INIT_KEY_SETTINGS         0x56
+#define MFDES_FINALIZE_KEY_SETTINGS     0x57
 #define MFDES_SELECT_APPLICATION        0x5A
 #define MFDES_CHANGE_FILE_SETTINGS      0x5F
 #define MFDES_GET_VERSION               0x60
 #define MFDES_GET_ISOFILE_IDS           0x61
 #define MFDES_GET_KEY_VERSION           0x64
+#define MFDES_GET_DELEGATE_INFO         0x69
 #define MFDES_GET_APPLICATION_IDS       0x6A
 #define MFDES_GET_VALUE                 0x6C
 #define MFDES_GET_FREE_MEMORY           0x6E
@@ -378,18 +441,24 @@ ISO 7816-4 Basic interindustry commands. For command APDU's.
 #define MFDES_CREATE_CYCLIC_RECORD_FILE 0xC0
 #define MFDES_CREATE_LINEAR_RECORD_FILE 0xC1
 #define MFDES_CHANGE_KEY                0xC4
+#define MFDES_CHANGE_KEY_EV2            0xC6
 #define MFDES_COMMIT_TRANSACTION        0xC7
+#define MFDES_COMMIT_READER_ID          0xC8
+#define MFDES_CREATE_DELEGATE_APP       0xC9
 #define MFDES_CREATE_APPLICATION        0xCA
 #define MFDES_CREATE_BACKUP_DATA_FILE   0xCB
 #define MFDES_CREATE_VALUE_FILE         0xCC
 #define MFDES_CREATE_STD_DATA_FILE      0xCD
+#define MFDES_CREATE_TRANS_MAC_FILE     0xCE
 #define MFDES_DELETE_APPLICATION        0xDA
 #define MFDES_DEBIT                     0xDC
 #define MFDES_DELETE_FILE               0xDF
 #define MFDES_CLEAR_RECORD_FILE         0xEB
+#define MFDES_PREPARE_PC                0xF0
+#define MFDES_PROXIMITY_CHECK           0xF2
 #define MFDES_GET_FILE_SETTINGS         0xF5
 #define MFDES_FORMAT_PICC               0xFC
-
+#define MFDES_VERIFY_PC                 0xFD
 
 // MIFARE DESFire status & error codes:
 #define MFDES_S_OPERATION_OK            0x00
@@ -480,12 +549,13 @@ ISO 7816-4 Basic interindustry commands. For command APDU's.
 #define T5555_BITRATE_SHIFT             12 //(RF=2n+2)   ie 64=2*0x1F+2   or n = (RF-2)/2
 #define T5555_FAST_WRITE                0x00004000
 #define T5555_PAGE_SELECT               0x00008000
+#define T5555_FIXED                     0x60000000
 
 #define T55XX_WRITE_TIMEOUT 1500
 
 // em4x05 & em4x69 chip configuration register definitions
-#define EM4x05_GET_BITRATE(x)           (((x & 0x3F)*2)+2)
-#define EM4x05_SET_BITRATE(x)           ((x-2)/2)
+#define EM4x05_GET_BITRATE(x)           ((((x) & 0x3F) * 2) + 2)
+#define EM4x05_SET_BITRATE(x)           (((x) - 2) / 2)
 #define EM4x05_MODULATION_NRZ           0x00000000
 #define EM4x05_MODULATION_MANCHESTER    0x00000040
 #define EM4x05_MODULATION_BIPHASE       0x00000080
@@ -500,15 +570,17 @@ ISO 7816-4 Basic interindustry commands. For command APDU's.
 #define EM4x05_PSK_RF_8                 0x00000800
 #define EM4x05_MAXBLOCK_SHIFT           14
 #define EM4x05_FIRST_USER_BLOCK         5
-#define EM4x05_SET_NUM_BLOCKS(x)        ((x+5-1)<<14) //# of blocks sent during default read mode
-#define EM4x05_GET_NUM_BLOCKS(x)        (((x>>14) & 0xF)-5+1)
-#define EM4x05_READ_LOGIN_REQ           1<<18
-#define EM4x05_READ_HK_LOGIN_REQ        1<<19
-#define EM4x05_WRITE_LOGIN_REQ          1<<20
-#define EM4x05_WRITE_HK_LOGIN_REQ       1<<21
-#define EM4x05_READ_AFTER_WRITE         1<<22
-#define EM4x05_DISABLE_ALLOWED          1<<23
-#define EM4x05_READER_TALK_FIRST        1<<24
+#define EM4x05_SET_NUM_BLOCKS(x)        (( (x) + 4) << 14) //# of blocks sent during default read mode
+#define EM4x05_GET_NUM_BLOCKS(x)        ((( (x) >> 14) & 0xF) - 4)
+#define EM4x05_READ_LOGIN_REQ           (1 << 18)
+#define EM4x05_READ_HK_LOGIN_REQ        (1 << 19)
+#define EM4x05_WRITE_LOGIN_REQ          (1 << 20)
+#define EM4x05_WRITE_HK_LOGIN_REQ       (1 << 21)
+#define EM4x05_READ_AFTER_WRITE         (1 << 22)
+#define EM4x05_DISABLE_ALLOWED          (1 << 23)
+#define EM4x05_READER_TALK_FIRST        (1 << 24)
+#define EM4x05_INVERT                   (1 << 25)
+#define EM4x05_PIGEON                   (1 << 26)
 
 
 // FeliCa protocol

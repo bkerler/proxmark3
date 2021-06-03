@@ -40,9 +40,13 @@ static bool all_feof(FILE *infile[], uint8_t num_infiles) {
 }
 
 static int zlib_compress(FILE *infile[], uint8_t num_infiles, FILE *outfile) {
-    uint8_t *fpga_config;
 
-    fpga_config = calloc(num_infiles * FPGA_CONFIG_SIZE, sizeof(uint8_t));
+    uint8_t *fpga_config = calloc(num_infiles * FPGA_CONFIG_SIZE, sizeof(uint8_t));
+    if (fpga_config == NULL) {
+        fprintf(stderr, "failed to allocate memory");
+        return (EXIT_FAILURE);
+    }
+
     // read the input files. Interleave them into fpga_config[]
     uint32_t total_size = 0;
     do {
@@ -50,10 +54,13 @@ static int zlib_compress(FILE *infile[], uint8_t num_infiles, FILE *outfile) {
         if (total_size >= num_infiles * FPGA_CONFIG_SIZE) {
             fprintf(stderr,
                     "Input files too big (total > %li bytes). These are probably not PM3 FPGA config files.\n"
-                    , num_infiles * FPGA_CONFIG_SIZE);
+                    , num_infiles * FPGA_CONFIG_SIZE
+                   );
+
             for (uint16_t j = 0; j < num_infiles; j++) {
                 fclose(infile[j]);
             }
+
             free(fpga_config);
             return (EXIT_FAILURE);
         }
@@ -94,7 +101,13 @@ static int zlib_compress(FILE *infile[], uint8_t num_infiles, FILE *outfile) {
 
         memcpy(ring_buffer, fpga_config + current_in, bytes_to_copy);
         int cmp_bytes = LZ4_compress_HC_continue(lz4_streamhc, ring_buffer, outbuf, bytes_to_copy, outsize_max);
-
+        if (cmp_bytes < 0) {
+            fprintf(stderr, "(lz4 - zlib_compress) error,  got negative number of bytes from LZ4_compress_HC_continue call. got %d ", cmp_bytes);
+            free(ring_buffer);
+            free(outbuf);
+            free(fpga_config);
+            return (EXIT_FAILURE);
+        }
         fwrite(&cmp_bytes, sizeof(int), 1, outfile);
         fwrite(outbuf, sizeof(char), cmp_bytes, outfile);
 
@@ -112,10 +125,10 @@ static int zlib_compress(FILE *infile[], uint8_t num_infiles, FILE *outfile) {
     }
     LZ4_freeStreamHC(lz4_streamhc);
 
-    fprintf(stdout, "compressed %u input bytes to %u output bytes\n", total_size, current_out);
+    fprintf(stdout, "compressed %u input bytes to %d output bytes\n", total_size, current_out);
 
     if (current_out == 0) {
-        fprintf(stderr, "Error in lz4");
+        fprintf(stderr, "error in lz4");
         return (EXIT_FAILURE);
     }
     return (EXIT_SUCCESS);
@@ -188,8 +201,10 @@ static int zlib_decompress(FILE *infile, FILE *outfile) {
  * length.
  */
 static int bitparse_find_section(FILE *infile, char section_name, unsigned int *section_length) {
-    int result = 0;
+
 #define MAX_FPGA_BIT_STREAM_HEADER_SEARCH 100  // maximum number of bytes to search for the requested section
+
+    int result = 0;
     uint16_t numbytes = 0;
     while (numbytes < MAX_FPGA_BIT_STREAM_HEADER_SEARCH) {
         char current_name = (char)fgetc(infile);
@@ -199,18 +214,27 @@ static int bitparse_find_section(FILE *infile, char section_name, unsigned int *
             break;
         }
         unsigned int current_length = 0;
+        int tmp;
         switch (current_name) {
             case 'e':
                 /* Four byte length field */
-                current_length += fgetc(infile) << 24;
-                current_length += fgetc(infile) << 16;
-                current_length += fgetc(infile) << 8;
-                current_length += fgetc(infile) << 0;
+                for (int i = 0; i < 4; i++) {
+                    tmp = fgetc(infile);
+                    if (tmp < 0) {
+                        break;
+                    }
+                    current_length += tmp << (24 - (i * 8));
+                }
                 numbytes += 4;
                 break;
             default: /* Fall through, two byte length field */
-                current_length += fgetc(infile) << 8;
-                current_length += fgetc(infile) << 0;
+                for (int i = 0; i < 2; i++) {
+                    tmp = fgetc(infile);
+                    if (tmp < 0) {
+                        break;
+                    }
+                    current_length += tmp << (8 - (i * 8));
+                }
                 numbytes += 2;
                 break;
         }
@@ -252,6 +276,8 @@ static int FpgaGatherVersion(FILE *infile, char *infile_name, char *dst, int len
         strncat(dst, "LF", len - strlen(dst) - 1);
     else if (!memcmp("fpga_hf", basename(infile_name), 7))
         strncat(dst, "HF", len - strlen(dst) - 1);
+    else if (!memcmp("fpga_felica", basename(infile_name), 7))
+        strncat(dst, "HF FeliCa", len - strlen(dst) - 1);
 
     strncat(dst, " image built", len - strlen(dst) - 1);
     if (bitparse_find_section(infile, 'b', &fpga_info_len)) {
@@ -283,6 +309,7 @@ static int FpgaGatherVersion(FILE *infile, char *infile_name, char *dst, int len
         for (uint16_t i = 0; i < fpga_info_len; i++) {
             char c = (char)fgetc(infile);
             if (i < sizeof(tempstr)) {
+                if (c == ' ') c = '0';
                 tempstr[i] = c;
             }
         }
@@ -389,11 +416,10 @@ int main(int argc, char **argv) {
             return (EXIT_FAILURE);
         }
         if (generate_version_file) {
-            if (generate_fpga_version_info(infiles, infile_names, num_input_files, outfile)) {
-                free(infile_names);
-                free(infiles);
-                return (EXIT_FAILURE);
-            }
+            int ret = generate_fpga_version_info(infiles, infile_names, num_input_files, outfile);
+            free(infile_names);
+            free(infiles);
+            return (ret);
         } else {
             int ret = zlib_compress(infiles, num_input_files, outfile);
             free(infile_names);

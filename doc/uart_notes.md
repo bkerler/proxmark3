@@ -28,13 +28,13 @@ USART support is in `common/usart.c`.
 
 There are mainly two ways to use this USART:
 * connect the host client to the Proxmark3 via this USART instead of USB-CDC, this is the `FPC_USART_HOST` option you can add to `PLATFORM_EXTRAS` in `Makefile.platform`. The most used way is through the BT add-on (blue shark) that we will cover later. Instead of BT add-on, we can also use e.g. a FTDI cable (mostly for internal development, it's much slower than USB-CDC anyway) or in the future other ways to connect the host such as a USART-to-Wi-Fi bridge.
-* connect "slave" devices to the Proxmark3 to add functionnalities. In such case, the host client will use USB-CDC and the USART will be use to, e.g. connect the Proxmark3 to various daughterboards. These is no such example of daughterboard as of today, except when we're talking to the BT add-on in its AT configuration mode.
+* connect "slave" devices to the Proxmark3 to add functionalities. In such case, the host client will use USB-CDC and the USART will be use to, e.g. connect the Proxmark3 to various daughterboards. These is no such example of daughterboard as of today, except when we're talking to the BT add-on in its AT configuration mode.
 
 This USART can be reached from the host client (if connected via USB-CDC) through the following commands, available when you add `FPC_USART_DEV` to `PLATFORM_EXTRAS` in `Makefile.platform`:
 * `usart config`, to configure the baudrate and the parity of the Proxmark3 USART
 * `usart txrx/tx/rx/txhex/rxhex` to transmit and receive bytes
 
-So, `usart config` changes the Proxmark3 USART baudrate and parity, while e.g. `usart txrx d AT+Px` and `usart txrx d AT+BAUDx` changes the BT add-on parity and baudrate.
+So, `usart config` changes the Proxmark3 USART baudrate and parity, while e.g. `usart txrx -d "AT+Px"` and `usart txrx -d "AT+BAUDx"` changes the BT add-on parity and baudrate.
 And for things to work fine, both sets have to match!
 
 Internally, the desired baudrate is converted to UART settings: a BRGR and a FP. The resulting baudrate will be close to but not always equal to the desired baudrate. Serial ports typically have some error tolerance in the actual baudrates. Theoretically < 2.5% on each side (so 5% in total), < 2% to be on the safe side. In the current firmware configuration, the Proxmark3 can provide any baudrate up to 2Mbauds with an error of max 2%, and selected baudrates up to 6Mbauds (tested with a FTDI C232HM DDHSL-0 cable).
@@ -51,7 +51,7 @@ Some specific commands are available when you add `BTADDON` to `PLATFORM_EXTRAS`
 
 `usart btfactory` changes several times the Proxmark3 USART baudrate and parity till it matches the BT add-on settings, then changes the baudrate and parity of the add-on to a default value, then changes the Proxmark USART to the same default values, so everything should be back in order. (`btfactory` does more but we're only interested in baudrate in this discussion)
 
-Manual configuration is also possible with `usart txrx d AT+Px` and `usart txrx d AT+BAUDx`.
+Manual configuration is also possible with `usart txrx -d "AT+Px"` and `usart txrx -d "AT+BAUDx"`.
 
 ### BT add-on connected mode
 
@@ -63,7 +63,7 @@ The add-on acts as a bridge, between its UART and the BT communication channel, 
 
 The Bluetooth RFCOMM protocol provides an emulation of serial ports over the L2CAP protocol ([ref](https://www.amd.e-technik.uni-rostock.de/ma/gol/lectures/wirlec/bluetooth_info/rfcomm.html)).
 
-As for USB-CDC, the real speed of the link is unrelated to serial baudrate notion. Litterature mentions a maximal value of 360kbps for some implementations, but the HC-06 Bluetooth module within the BT add-on is limited as the vast majority of similar devices to 128kbps.
+As for USB-CDC, the real speed of the link is unrelated to serial baudrate notion. Literature mentions a maximal value of 360kbps for some implementations, but the HC-06 Bluetooth module within the BT add-on is limited as the vast majority of similar devices to 128kbps.
 
 ### BT add-on baudrate
 

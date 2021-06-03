@@ -21,6 +21,7 @@
 #include "pm3_cmd.h"
 #include "ui.h"
 #include "mbedtls/sha1.h"
+#include "crc16.h"        // crc16 ccitt
 
 // Implemetation tips:
 // For each implementation of the algos, I recommend adding a self test for easy "simple unit" tests when Travic CI / Appveyour runs.
@@ -179,6 +180,13 @@ uint16_t ul_ev1_packgenD(uint8_t *uid) {
 
     p ^= 0x5555;
     return BSWAP_16(p & 0xFFFF);
+}
+
+uint32_t ul_ev1_pwdgen_def(uint8_t *uid) {
+    return 0xFFFFFFFF;
+}
+uint16_t ul_ev1_packgen_def(uint8_t *uid) {
+    return 0x0000;
 }
 
 //------------------------------------
@@ -414,12 +422,92 @@ int mfc_algo_sky_all(uint8_t *uid, uint8_t *keys) {
     return PM3_SUCCESS;
 }
 
+// LF T55x7 White gun cloner algo
+uint32_t lf_t55xx_white_pwdgen(uint32_t id) {
+    uint32_t r1 = rotl(id & 0x000000ec, 8);
+    uint32_t r2 = rotl(id & 0x86000000, 16);
+    uint32_t pwd = 0x10303;
+    pwd += ((id & 0x86ee00ec) ^ r1 ^ r2);
+    return pwd;
+}
+
+// Gallagher Desfire Key Diversification Input for Cardax Card Data Application
+int mfdes_kdf_input_gallagher(uint8_t *uid, uint8_t uidLen, uint8_t keyNo, uint32_t aid, uint8_t *kdfInputOut, uint8_t *kdfInputLen) {
+    if (uid == NULL || (uidLen != 4 && uidLen != 7) || keyNo > 2 || kdfInputOut == NULL || kdfInputLen == NULL) {
+        if (g_debugMode) {
+            PrintAndLogEx(WARNING, "Invalid arguments");
+        }
+        return PM3_EINVARG;
+    }
+
+    // Verify the AppID is a valid Gallagher AppID
+    if ((aid & 0xF0FFFF) != 0x2081F4) {
+        if (g_debugMode) {
+            PrintAndLogEx(WARNING, "Invalid Gallagher AID %06X", aid);
+        }
+        return PM3_EINVARG;
+    }
+
+    int len = 0;
+    // If the keyNo == 1, then omit the UID.
+    if (keyNo != 1) {
+        if (*kdfInputLen < (4 + uidLen)) {
+            return PM3_EINVARG;
+        }
+
+        memcpy(kdfInputOut, uid, uidLen);
+        len += uidLen;
+    } else if (*kdfInputLen < 4) {
+        return PM3_EINVARG;
+    }
+
+    kdfInputOut[len++] = keyNo;
+
+    kdfInputOut[len++] = aid & 0xff;
+    kdfInputOut[len++] = (aid >> 8) & 0xff;
+    kdfInputOut[len++] = (aid >> 16) & 0xff;
+
+    *kdfInputLen = len;
+
+    return PM3_SUCCESS;
+}
+
+int mfc_generate4b_nuid(uint8_t *uid, uint8_t *nuid) {
+    uint16_t crc;
+    uint8_t b1, b2;
+
+    compute_crc(CRC_14443_A, uid, 3, &b1, &b2);
+    nuid[0] = (b2 & 0xE0) | 0xF;
+    nuid[1] = b1;
+    crc = b1;
+    crc |= b2 << 8;
+    crc = crc16_fast(&uid[3], 4, reflect16(crc), true, true);
+    nuid[2] = (crc >> 8) & 0xFF ;
+    nuid[3] = crc & 0xFF;
+    return PM3_SUCCESS;
+}
+
+int mfc_algo_touch_one(uint8_t *uid, uint8_t sector, uint8_t keytype, uint64_t *key) {
+    if (uid == NULL) return PM3_EINVARG;
+    if (key == NULL) return PM3_EINVARG;
+
+    *key = (
+               (uint64_t)(uid[1] ^ uid[2] ^ uid[3]) << 40 |
+               (uint64_t)uid[1] << 32 |
+               (uint64_t)uid[2] << 24 |
+               (uint64_t)(((uid[0] + uid[1] + uid[2] + uid[3]) % 0x100) ^ uid[3]) << 16 |
+               (uint64_t)0  << 8 |
+               (uint64_t)0
+           );
+    return PM3_SUCCESS;
+}
+
 //------------------------------------
 // Self tests
 //------------------------------------
 int generator_selftest(void) {
 
-#define NUM_OF_TEST     5
+#define NUM_OF_TEST     6
 
     PrintAndLogEx(INFO, "PWD / KEY generator selftest");
     PrintAndLogEx(INFO, "----------------------------");
@@ -467,6 +555,13 @@ int generator_selftest(void) {
     if (success)
         testresult++;
     PrintAndLogEx(success ? SUCCESS : WARNING, "UID | %s          | %"PRIx64" - %s", sprint_hex(uid6, 4), key6, success ? "OK" : "->82C7E64BC565<--");
+
+
+    uint32_t lf_id = lf_t55xx_white_pwdgen(0x00000080);
+    success = (lf_id == 0x00018383);
+    if (success)
+        testresult++;
+    PrintAndLogEx(success ? SUCCESS : WARNING, "ID  | 0x00000080            | %08"PRIx32 " - %s", lf_id, success ? "OK" : "->00018383<--");
 
     PrintAndLogEx(SUCCESS, "------------------- Selftest %s", (testresult == NUM_OF_TEST) ? "OK" : "fail");
     return PM3_SUCCESS;

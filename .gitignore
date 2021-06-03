@@ -26,12 +26,14 @@
 *.DS_Store
 *.exe
 *.dsym
-version.c
+version_pm3.c
 *.json
 *.old
 *.swp
 *.json.bak
 *.pyc
+*.bmp
+originalitysig.csv
 
 # new build file for add-ons.
 Makefile.platform
@@ -41,6 +43,7 @@ Makefile.platform
 # cmake
 client/build/
 client/android/build/
+client/deps/bzip2/
 
 # Coverity
 cov-int/
@@ -65,6 +68,13 @@ tools/fpga_compress/fpga_compress
 tools/mfkey/mfkey32
 tools/mfkey/mfkey64
 tools/nonce2key/nonce2key
+tools/cryptorf/cm
+tools/cryptorf/sm
+tools/cryptorf/sma
+tools/cryptorf/sma_multi
+tools/mf_nonce_brute/mf_nonce_brute
+tools/mf_nonce_brute/mf_trace_brute
+tools/jtag_openocd/openocd_configuration
 
 fpga/*
 !fpga/tests
@@ -77,29 +87,31 @@ fpga/*
 !fpga/xst_hf.scr
 !fpga/go.bat
 !fpga/sim.tcl
+
 # offcial dumps folder
 dumps/*
+traces/*
 
 #client/*
-# my own traces folder
 client/traces/*
-# my own dumps folder
 client/dumps/*
 *.ice
 *.new
-armsrc/TEMP EMV/*
-tools/mf_nonce_brute/mf_nonce_brute
-tools/andrew/*
-tools/jtag_openocd/openocd_configuration
-ppls patches/*
 *- Copy.*
+/EF_*
 
 client/lualibs/mfc_default_keys.lua
 client/lualibs/pm3_cmd.lua
 # recompiled
 fpga_version_info.c
 
+# log / history
 .proxmark3/*
 
 # .tmp files are created during compilation
 *.tmp
+
+# VSCode files
+!.vscode/templates/*.json
+!.vscode/extensions.json
+!.vscode/tasks.json

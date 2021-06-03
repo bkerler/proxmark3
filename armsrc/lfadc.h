@@ -17,6 +17,7 @@
 
 extern bool g_logging;
 
+uint8_t get_adc_avg(void);
 void lf_sample_mean(void);
 bool lf_test_periods(size_t expected, size_t count);
 size_t lf_count_edge_periods(size_t max);
@@ -31,6 +32,7 @@ void lf_wait_periods(size_t periods);
 void lf_init(bool reader, bool simulate);
 void lf_finalize(void);
 size_t lf_detect_field_drop(size_t max);
+
 bool lf_manchester_send_bytes(const uint8_t *frame, size_t frame_len);
 void lf_modulation(bool modulation);
 

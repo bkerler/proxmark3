@@ -18,6 +18,7 @@
 #    -DANDROID_NATIVE_API_LEVEL=android-19 \
 #    -DSKIPBT=1 -DSKIPPYTHON=1 -DSKIPPTHREAD=1 ..
 
+message(STATUS "CMake ${CMAKE_VERSION}")
 cmake_minimum_required(VERSION 3.10)
 project(proxmark3)
 SET (PM3_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
@@ -31,7 +32,7 @@ find_package(PkgConfig)
 if (NOT SKIPQT EQUAL 1)
     if(APPLE AND EXISTS /usr/local/opt/qt5)
         # Homebrew installs Qt5 (up to at least 5.11.0) in
-        # /usr/local/qt5. Ensure that it can be found by CMake
+        # /usr/local/opt/qt5. Ensure that it can be found by CMake
         # since it is not in the default /usr/local prefix.
         # Add it to PATHS so that it doesn't override the
         # CMAKE_PREFIX_PATH environment variable.
@@ -39,6 +40,16 @@ if (NOT SKIPQT EQUAL 1)
         # e.g. find_package(Qt5Core ${QT_FIND_PACKAGE_OPTIONS})
         list(APPEND QT_FIND_PACKAGE_OPTIONS PATHS /usr/local/opt/qt5)
     endif(APPLE AND EXISTS /usr/local/opt/qt5)
+    if(APPLE AND EXISTS /opt/homebrew/opt/qt5)
+        # Homebrew on Apple Silicon installs Qt5 in
+        # /opt/homebrew/opt/qt5. Ensure that it can be found by CMake
+        # since it is not in the default /usr/local prefix.
+        # Add it to PATHS so that it doesn't override the
+        # CMAKE_PREFIX_PATH environment variable.
+        # QT_FIND_PACKAGE_OPTIONS should be passed to find_package,
+        # e.g. find_package(Qt5Core ${QT_FIND_PACKAGE_OPTIONS})
+        list(APPEND QT_FIND_PACKAGE_OPTIONS PATHS /opt/homebrew/opt/qt5)
+    endif(APPLE AND EXISTS /opt/homebrew/opt/qt5)
     set(QT_PACKAGELIST
         Qt5Core
         Qt5Widgets
@@ -76,12 +87,12 @@ endif (EMBED_READLINE OR EMBED_BZIP2)
 
 if (NOT SKIPREADLINE EQUAL 1)
     if (APPLE)
-      find_path(READLINE_INCLUDE_DIRS readline/readline.h /usr/local/opt/readline/include /opt/local/include /opt/include /usr/local/include /usr/include NO_DEFAULT_PATH)
-      find_library(READLINE_LIBRARIES readline /usr/local/opt/readline/lib /opt/local/lib /opt/lib /usr/local/lib /usr/lib NO_DEFAULT_PATH)
+      find_path(READLINE_INCLUDE_DIRS readline/readline.h /usr/local/opt/readline/include /opt/local/include /opt/include /usr/local/include /usr/include /opt/homebrew/opt/readline/include NO_DEFAULT_PATH)
+      find_library(READLINE_LIBRARIES readline /usr/local/opt/readline/lib /opt/local/lib /opt/lib /usr/local/lib /usr/lib /opt/homebrew/opt/readline/lib NO_DEFAULT_PATH)
     endif (APPLE)
     if (EMBED_READLINE)
         ExternalProject_Add(ncurses
-            URL                   http://ftp.gnu.org/pub/gnu/ncurses/ncurses-6.0.tar.gz
+            URL                   http://ftp.gnu.org/pub/gnu/ncurses/ncurses-6.1.tar.gz
             PREFIX                deps/ncurses
             DOWNLOAD_DIR          ${CMAKE_CURRENT_SOURCE_DIR}/deps/ncurses
             CONFIGURE_COMMAND     ./configure CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} LD=${CMAKE_C_COMPILER} AR=${CMAKE_AR} RANLIB=${CMAKE_RANLIB} ${CFLAGS_EXTERNAL_LIB} --host=arm --disable-database  --with-fallbacks=ansi-generic,ansi-mini,color_xterm,dtterm,dumb,Eterm,Eterm-256color,Eterm-88color,eterm-color,gnome,gnome-256color,guru,hurd,iTerm.app,konsole,konsole-16color,konsole-256color,konsole-base,konsole-linux,konsole-solaris,konsole-vt100,kterm,kterm-color,linux,linux-16color,linux-basic,mac,mlterm,mlterm-256color,mrxvt,mrxvt-256color,mterm,mterm-ansi,mvterm,nsterm,nsterm-16color,nsterm-256color,pty,putty,putty-256color,putty-vt100,rxvt,rxvt-16color,rxvt-256color,rxvt-88color,rxvt-basic,rxvt-color,screen,screen-16color,screen-256color,simpleterm,st-16color,st-256color,st52,st52-color,stv52,tt,tt52,unknown,vt100,vt102,vte,vte-256color,xterm,xterm-16color,xterm-256color,xterm-88color,xterm-basic,xterm-bold,xterm-color,xterm-utf8,xterm-vt220,xterm-vt52,xterm1,xtermc,xtermm   --enable-termcap --without-ada --without-debug --without-dlsym --without-gpm --without-develop --without-tests --without-cxx-binding --with-termlib
@@ -93,7 +104,7 @@ if (NOT SKIPREADLINE EQUAL 1)
         ExternalProject_Add_StepTargets(ncurses configure build install)
 
         ExternalProject_Add(readline
-            URL                   ftp://ftp.gnu.org/gnu/readline/readline-7.0.tar.gz
+            URL                   ftp://ftp.gnu.org/gnu/readline/readline-8.1.tar.gz
             PREFIX                deps/readline
             DOWNLOAD_DIR          ${CMAKE_CURRENT_SOURCE_DIR}/deps/readline
             CONFIGURE_COMMAND     ./configure CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} LD=${CMAKE_C_COMPILER} AR=${CMAKE_AR} RANLIB=${CMAKE_RANLIB} ${CFLAGS_EXTERNAL_LIB} --host=arm --enable-static
@@ -187,7 +198,6 @@ set (TARGET_SOURCES
         ${PM3_ROOT}/client/src/emv/crypto.c
         ${PM3_ROOT}/client/src/emv/crypto_polarssl.c
         ${PM3_ROOT}/client/src/emv/dol.c
-        ${PM3_ROOT}/client/src/emv/dump.c
         ${PM3_ROOT}/client/src/emv/emv_pk.c
         ${PM3_ROOT}/client/src/emv/emv_pki.c
         ${PM3_ROOT}/client/src/emv/emv_pki_priv.c
@@ -210,11 +220,12 @@ set (TARGET_SOURCES
         ${PM3_ROOT}/client/src/mifare/mifare4.c
         ${PM3_ROOT}/client/src/mifare/mifaredefault.c
         ${PM3_ROOT}/client/src/mifare/mifarehost.c
-        ${PM3_ROOT}/client/src/mifare/ndef.c
+        ${PM3_ROOT}/client/src/nfc/ndef.c
         ${PM3_ROOT}/client/src/mifare/desfire_crypto.c
         ${PM3_ROOT}/client/src/uart/uart_posix.c
         ${PM3_ROOT}/client/src/uart/uart_win32.c
         ${PM3_ROOT}/client/src/ui/overlays.ui
+        ${PM3_ROOT}/client/src/aiddesfire.c
         ${PM3_ROOT}/client/src/aidsearch.c
         ${PM3_ROOT}/client/src/cmdanalyse.c
         ${PM3_ROOT}/client/src/cmdcrc.c
@@ -226,10 +237,12 @@ set (TARGET_SOURCES
         ${PM3_ROOT}/client/src/cmdhf14b.c
         ${PM3_ROOT}/client/src/cmdhf15.c
         ${PM3_ROOT}/client/src/cmdhfcryptorf.c
+        ${PM3_ROOT}/client/src/cmdhfemrtd.c
         ${PM3_ROOT}/client/src/cmdhfepa.c
         ${PM3_ROOT}/client/src/cmdhffelica.c
         ${PM3_ROOT}/client/src/cmdhffido.c
         ${PM3_ROOT}/client/src/cmdhficlass.c
+        ${PM3_ROOT}/client/src/cmdhfjooki.c
         ${PM3_ROOT}/client/src/cmdhflegic.c
         ${PM3_ROOT}/client/src/cmdhflist.c
         ${PM3_ROOT}/client/src/cmdhflto.c
@@ -238,19 +251,28 @@ set (TARGET_SOURCES
         ${PM3_ROOT}/client/src/cmdhfmfhard.c
         ${PM3_ROOT}/client/src/cmdhfmfp.c
         ${PM3_ROOT}/client/src/cmdhfmfu.c
+        ${PM3_ROOT}/client/src/cmdhfseos.c
+        ${PM3_ROOT}/client/src/cmdhfst.c
+        ${PM3_ROOT}/client/src/cmdhfst25ta.c
         ${PM3_ROOT}/client/src/cmdhfthinfilm.c
         ${PM3_ROOT}/client/src/cmdhftopaz.c
+        ${PM3_ROOT}/client/src/cmdhfwaveshare.c
         ${PM3_ROOT}/client/src/cmdhw.c
         ${PM3_ROOT}/client/src/cmdlf.c
         ${PM3_ROOT}/client/src/cmdlfawid.c
         ${PM3_ROOT}/client/src/cmdlfcotag.c
-        ${PM3_ROOT}/client/src/cmdlfem4x.c
+        ${PM3_ROOT}/client/src/cmdlfdestron.c
+        ${PM3_ROOT}/client/src/cmdlfem.c
+        ${PM3_ROOT}/client/src/cmdlfem410x.c
+        ${PM3_ROOT}/client/src/cmdlfem4x05.c
         ${PM3_ROOT}/client/src/cmdlfem4x50.c
-        ${PM3_ROOT}/client/src/cmdlffdx.c
+        ${PM3_ROOT}/client/src/cmdlfem4x70.c
+        ${PM3_ROOT}/client/src/cmdlffdxb.c
         ${PM3_ROOT}/client/src/cmdlfgallagher.c
         ${PM3_ROOT}/client/src/cmdlfguard.c
         ${PM3_ROOT}/client/src/cmdlfhid.c
         ${PM3_ROOT}/client/src/cmdlfhitag.c
+        ${PM3_ROOT}/client/src/cmdlfidteck.c
         ${PM3_ROOT}/client/src/cmdlfindala.c
         ${PM3_ROOT}/client/src/cmdlfio.c
         ${PM3_ROOT}/client/src/cmdlfjablotron.c
@@ -267,10 +289,10 @@ set (TARGET_SOURCES
         ${PM3_ROOT}/client/src/cmdlfsecurakey.c
         ${PM3_ROOT}/client/src/cmdlft55xx.c
         ${PM3_ROOT}/client/src/cmdlfti.c
-        ${PM3_ROOT}/client/src/cmdlfverichip.c
         ${PM3_ROOT}/client/src/cmdlfviking.c
         ${PM3_ROOT}/client/src/cmdlfvisa2000.c
         ${PM3_ROOT}/client/src/cmdmain.c
+        ${PM3_ROOT}/client/src/cmdnfc.c
         ${PM3_ROOT}/client/src/cmdparser.c
         ${PM3_ROOT}/client/src/cmdscript.c
         ${PM3_ROOT}/client/src/cmdsmartcard.c
@@ -283,6 +305,7 @@ set (TARGET_SOURCES
         ${PM3_ROOT}/client/src/graph.c
         ${PM3_ROOT}/client/src/jansson_path.c
         ${PM3_ROOT}/client/src/preferences.c
+        ${PM3_ROOT}/client/src/pm3.c
         ${PM3_ROOT}/client/src/pm3_binlib.c
         ${PM3_ROOT}/client/src/pm3_bitlib.c
         ${PM3_ROOT}/client/src/prng.c
@@ -293,13 +316,13 @@ set (TARGET_SOURCES
         ${PM3_ROOT}/client/src/util.c
         ${PM3_ROOT}/client/src/wiegand_formats.c
         ${PM3_ROOT}/client/src/wiegand_formatutils.c
-        ${CMAKE_BINARY_DIR}/version.c
+        ${CMAKE_BINARY_DIR}/version_pm3.c
         )
 
 add_custom_command(
-    OUTPUT  ${CMAKE_BINARY_DIR}/version.c
-    COMMAND sh ${PM3_ROOT}/tools/mkversion.sh > ${CMAKE_BINARY_DIR}/version.c || perl ${PM3_ROOT}/tools/mkversion.pl > ${CMAKE_BINARY_DIR}/version.c || ${CMAKE_COMMAND} -E copy ${PM3_ROOT}/common/default_version.c ${CMAKE_BINARY_DIR}/version.c
-    DEPENDS ${PM3_ROOT}/common/default_version.c
+    OUTPUT  ${CMAKE_BINARY_DIR}/version_pm3.c
+    COMMAND sh ${PM3_ROOT}/tools/mkversion.sh > ${CMAKE_BINARY_DIR}/version_pm3.c || perl ${PM3_ROOT}/tools/mkversion.pl > ${CMAKE_BINARY_DIR}/version_pm3.c || ${CMAKE_COMMAND} -E copy ${PM3_ROOT}/common/default_version_pm3.c ${CMAKE_BINARY_DIR}/version_pm3.c
+    DEPENDS ${PM3_ROOT}/common/default_version_pm3.c
 )
 
 set(ADDITIONAL_SRC "")
@@ -311,7 +334,7 @@ set(X86_CPUS x86 x86_64 i686)
 message(STATUS "CMAKE_SYSTEM_PROCESSOR := ${CMAKE_SYSTEM_PROCESSOR}")
 
 if (APPLE)
-    message("Apple device detected.")
+    message(STATUS "Apple device detected.")
     set(ADDITIONAL_SRC ${PM3_ROOT}/client/src/util_darwin.h  ${PM3_ROOT}/client/src/util_darwin.m ${ADDITIONAL_SRC})
     set(ADDITIONAL_LNK "-framework Foundation" "-framework AppKit")
 endif (APPLE)
@@ -355,7 +378,7 @@ if (NOT SKIPPYTHON EQUAL 1)
         add_definitions(-DHAVE_PYTHON)
         set(ADDITIONAL_DIRS ${PYTHON3_INCLUDE_DIRS} ${ADDITIONAL_DIRS})
         set(ADDITIONAL_LNK ${PYTHON3_LIBRARIES} ${ADDITIONAL_LNK})
-        set(ADDITIONAL_LNKDIRS ${PYTHON3_LIBRARY_DIRS} ${ADDITIONAL_LNKDIRS})   
+        set(ADDITIONAL_LNKDIRS ${PYTHON3_LIBRARY_DIRS} ${ADDITIONAL_LNKDIRS})
     endif (PYTHON3EMBED_FOUND)
 endif (NOT SKIPPYTHON EQUAL 1)
 
@@ -377,79 +400,101 @@ if (WHEREAMI_FOUND)
     set(ADDITIONAL_LNK ${WHEREAMI_LIBRARIES} ${ADDITIONAL_LNK})
 endif (WHEREAMI_FOUND)
 
-message("===================================================================")
+message(STATUS "===================================================================")
 if (SKIPQT EQUAL 1)
-    message("GUI support:       skipped")
+    message(STATUS "GUI support:       skipped")
 else (SKIPQT EQUAL 1)
     if (Qt5_FOUND)
-        message("GUI support:       QT5 found, enabled")
+        message(STATUS "GUI support:       QT5 found, enabled")
     else (Qt5_FOUND)
-        message("GUI support:       QT5 not found, disabled")
+        message(STATUS "GUI support:       QT5 not found, disabled")
     endif (Qt5_FOUND)
 endif (SKIPQT EQUAL 1)
 
 if (SKIPBT EQUAL 1)
-    message("native BT support: skipped")
+    message(STATUS "native BT support: skipped")
 else (SKIPBT EQUAL 1)
     if (BLUEZ_FOUND)
-        message("native BT support: Bluez found, enabled")
+        message(STATUS "native BT support: Bluez found, enabled")
     else (BLUEZ_FOUND)
-        message("native BT support: Bluez not found, disabled")
+        message(STATUS "native BT support: Bluez not found, disabled")
     endif (BLUEZ_FOUND)
 endif(SKIPBT EQUAL 1)
 
 if (EMBED_BZIP2)
-    message("Bzip2 library:     embedded")
+    message(STATUS "Bzip2 library:     embedded")
 else (EMBED_BZIP2)
-    message("Bzip2 library:     system library found")
+    message(STATUS "Bzip2 library:     system library found")
 endif (EMBED_BZIP2)
 
 if (SKIPJANSSONSYSTEM EQUAL 1)
-    message("Jansson library:   local library forced")
+    message(STATUS "Jansson library:   local library forced")
 else (SKIPJANSSONSYSTEM EQUAL 1)
     if (JANSSON_FOUND)
-        message("Jansson library:   system library found")
+        message(STATUS "Jansson library:   system library found")
     else (JANSSON_FOUND)
-        message("Jansson library:   system library not found, using local library")
+        message(STATUS "Jansson library:   system library not found, using local library")
     endif (JANSSON_FOUND)
 endif (SKIPJANSSONSYSTEM EQUAL 1)
 
 if (SKIPPYTHON EQUAL 1)
-    message("Python3 library:   skipped")
+    message(STATUS "Python3 library:   skipped")
 else (SKIPPYTHON EQUAL 1)
     if (PYTHON3EMBED_FOUND)
-        message("Python3 library:   Python3 embed found, enabled")
-    elseif (PYTHON_FOUND)
-        message("Python3 library:   Python3 found, enabled")
+        message(STATUS "Python3 library:   Python3 embed found, enabled")
+    elseif (PYTHON3_FOUND)
+        message(STATUS "Python3 library:   Python3 found, enabled")
     else (PYTHON3EMBED_FOUND)
-        message("Python3 library:   Python3 not found, disabled")
+        message(STATUS "Python3 library:   Python3 not found, disabled")
     endif (PYTHON3EMBED_FOUND)
 endif(SKIPPYTHON EQUAL 1)
 
 if (SKIPREADLINE EQUAL 1)
-    message("Readline library:  skipped")
+    message(STATUS "Readline library:  skipped")
 else (SKIPREADLINE EQUAL 1)
     if (READLINE_FOUND)
         if (EMBED_READLINE)
-            message("Readline library:  embedded")
+            message(STATUS "Readline library:  embedded")
         else (EMBED_READLINE)
-            message("Readline library:  system library found")
+            message(STATUS "Readline library:  system library found")
         endif (EMBED_READLINE)
     else (READLINE_FOUND)
-        message("Readline library:  Readline not found, disabled")
+        message(STATUS "Readline library:  Readline not found, disabled")
     endif (READLINE_FOUND)
 endif(SKIPREADLINE EQUAL 1)
 
 if (SKIPWHEREAMISYSTEM EQUAL 1)
-    message("Whereami library:  local library forced")
+    message(STATUS "Whereami library:  local library forced")
 else (SKIPWHEREAMISYSTEM EQUAL 1)
     if (WHEREAMI_FOUND)
-        message("Whereami library:  system library found")
+        message(STATUS "Whereami library:  system library found")
     else (WHEREAMI_FOUND)
-        message("Whereami library:  system library not found, using local library")
+        message(STATUS "Whereami library:  system library not found, using local library")
     endif (WHEREAMI_FOUND)
 endif (SKIPWHEREAMISYSTEM EQUAL 1)
-message("===================================================================")
+
+# Lua SWIG
+if (EXISTS ${PM3_ROOT}/client/src/pm3_luawrap.c)
+    set (TARGET_SOURCES
+            ${PM3_ROOT}/client/src/pm3_luawrap.c
+            ${TARGET_SOURCES})
+    add_definitions(-DHAVE_LUA_SWIG)
+    message(STATUS "Lua SWIG:          wrapper found")
+endif (EXISTS ${PM3_ROOT}/client/src/pm3_luawrap.c)
+
+# Python SWIG
+if (NOT SKIPPYTHON EQUAL 1)
+    if (PYTHON3EMBED_FOUND OR PYTHON3_FOUND)
+        if (EXISTS ${PM3_ROOT}/client/src/pm3_pywrap.c)
+            set (TARGET_SOURCES
+                    ${PM3_ROOT}/client/src/pm3_pywrap.c
+                    ${TARGET_SOURCES})
+            add_definitions(-DHAVE_PYTHON_SWIG)
+            message(STATUS "Python SWIG:       wrapper found")
+        endif (EXISTS ${PM3_ROOT}/client/src/pm3_pywrap.c)
+    endif (PYTHON3EMBED_FOUND OR PYTHON3_FOUND)
+endif (NOT SKIPPYTHON EQUAL 1)
+message(STATUS "===================================================================")
 
 add_executable(proxmark3
         ${PM3_ROOT}/client/src/proxmark3.c
@@ -492,20 +537,10 @@ if (NOT APPLE)
     set(ADDITIONAL_LNK ${ADDITIONAL_LNK} -Wl,--as-needed -latomic -Wl,--no-as-needed)
 endif (NOT APPLE)
 
-
-find_library(pm3rrg_rdv4_cliparser REQUIRED)
-find_library(pm3rrg_rdv4_tinycbor REQUIRED)
-find_library(pm3rrg_rdv4_lua REQUIRED)
-find_library(pm3rrg_rdv4_mbedtls REQUIRED)
-find_library(pm3rrg_rdv4_reveng REQUIRED)
-find_library(pm3rrg_rdv4_hardnested REQUIRED)
-
 if (NOT JANSSON_FOUND)
-    find_library(pm3rrg_rdv4_jansson REQUIRED)
     set(ADDITIONAL_LNK pm3rrg_rdv4_jansson ${ADDITIONAL_LNK})
 endif (NOT JANSSON_FOUND)
 if (NOT WHEREAMI_FOUND)
-    find_library(pm3rrg_rdv4_whereami REQUIRED)
     set(ADDITIONAL_LNK pm3rrg_rdv4_whereami ${ADDITIONAL_LNK})
 endif (NOT WHEREAMI_FOUND)
 

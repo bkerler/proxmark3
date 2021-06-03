@@ -242,7 +242,6 @@ void Desfire_session_key_new(const uint8_t rnda[], const uint8_t rndb[], desfire
     }
 }
 
-static void xor(const uint8_t *ivect, uint8_t *data, const size_t len);
 static size_t key_macing_length(desfirekey_t key);
 
 // iceman,  see memxor inside string.c, dest/src swapped..
@@ -264,20 +263,20 @@ void cmac_generate_subkeys(desfirekey_t key) {
 
     mifare_cypher_blocks_chained(NULL, key, ivect, l, kbs, MCD_RECEIVE, MCO_ENCYPHER);
 
-    bool xor = false;
+    bool txor = false;
 
     // Used to compute CMAC on complete blocks
     memcpy(key->cmac_sk1, l, kbs);
-    xor = l[0] & 0x80;
+    txor = l[0] & 0x80;
     lsl(key->cmac_sk1, kbs);
-    if (xor)
+    if (txor)
         key->cmac_sk1[kbs - 1] ^= R;
 
     // Used to compute CMAC on the last block if non-complete
     memcpy(key->cmac_sk2, key->cmac_sk1, kbs);
-    xor = key->cmac_sk1[0] & 0x80;
+    txor = key->cmac_sk1[0] & 0x80;
     lsl(key->cmac_sk2, kbs);
-    if (xor)
+    if (txor)
         key->cmac_sk2[kbs - 1] ^= R;
 }
 
@@ -431,7 +430,7 @@ void *mifare_cryto_preprocess_data(desfiretag_t tag, void *data, size_t *nbytes,
                         break;
                     // Append MAC
                     size_t bla = maced_data_length(DESFIRE(tag)->session_key, *nbytes - offset) + offset;
-                    bla++;
+                    (void)bla++;
 
                     memcpy(res + *nbytes, mac, 4);
 
@@ -444,7 +443,7 @@ void *mifare_cryto_preprocess_data(desfiretag_t tag, void *data, size_t *nbytes,
 
                     if (append_mac) {
                         size_t len = maced_data_length(key, *nbytes);
-                        ++len;
+                        (void)++len;
                         memcpy(res, data, *nbytes);
                         memcpy(res + *nbytes, DESFIRE(tag)->cmac, CMAC_LENGTH);
                         *nbytes += CMAC_LENGTH;

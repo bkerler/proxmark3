@@ -51,25 +51,32 @@ static size_t us_rxfifo_high = 0;
 static void usart_fill_rxfifo(void) {
     uint16_t rxfifo_free ;
     if (pUS1->US_RNCR == 0) { // One buffer got filled, backup buffer being used
+
         if (us_rxfifo_low > us_rxfifo_high)
             rxfifo_free = us_rxfifo_low - us_rxfifo_high;
         else
             rxfifo_free = sizeof(us_rxfifo) - us_rxfifo_high + us_rxfifo_low;
+
         uint16_t available = USART_BUFFLEN - usart_cur_inbuf_off;
+
         if (available <= rxfifo_free) {
+
             for (uint16_t i = 0; i < available; i++) {
                 us_rxfifo[us_rxfifo_high++] = usart_cur_inbuf[usart_cur_inbuf_off + i];
                 if (us_rxfifo_high == sizeof(us_rxfifo))
                     us_rxfifo_high = 0;
             }
+
             // Give next buffer
             pUS1->US_RNPR = (uint32_t)usart_cur_inbuf;
             pUS1->US_RNCR = USART_BUFFLEN;
+
             // Swap current buff
             if (usart_cur_inbuf == us_inbuf1)
                 usart_cur_inbuf = us_inbuf2;
             else
                 usart_cur_inbuf = us_inbuf1;
+
             usart_cur_inbuf_off = 0;
         } else {
             // Take only what we have room for
@@ -83,12 +90,16 @@ static void usart_fill_rxfifo(void) {
             return;
         }
     }
+
     if (pUS1->US_RCR < USART_BUFFLEN - usart_cur_inbuf_off) { // Current buffer partially filled
+
         if (us_rxfifo_low > us_rxfifo_high)
             rxfifo_free = us_rxfifo_low - us_rxfifo_high;
         else
             rxfifo_free = sizeof(us_rxfifo) - us_rxfifo_high + us_rxfifo_low;
+
         uint16_t available = USART_BUFFLEN - pUS1->US_RCR - usart_cur_inbuf_off;
+
         if (available > rxfifo_free)
             available = rxfifo_free;
         for (uint16_t i = 0; i < available; i++) {
@@ -110,7 +121,7 @@ uint16_t usart_rxdata_available(void) {
 
 uint32_t usart_read_ng(uint8_t *data, size_t len) {
     if (len == 0) return 0;
-    uint32_t nbBytesRcv = 0;
+    uint32_t bytes_rcv = 0;
     uint32_t try = 0;
 //    uint32_t highest_observed_try = 0;
     // Empirical max try observed: 3000000 / USART_BAUD_RATE
@@ -135,9 +146,9 @@ uint32_t usart_read_ng(uint8_t *data, size_t len) {
         }
         len -= packetSize;
         while (packetSize--) {
-            data[nbBytesRcv++] = us_rxfifo[us_rxfifo_low++];
             if (us_rxfifo_low == sizeof(us_rxfifo))
                 us_rxfifo_low = 0;
+            data[bytes_rcv++] = us_rxfifo[us_rxfifo_low++];
         }
         if (try++ == maxtry) {
 //            Dbprintf_usb("Dbg USART TIMEOUT");
@@ -146,11 +157,11 @@ uint32_t usart_read_ng(uint8_t *data, size_t len) {
     }
 //    highest_observed_try = MAX(highest_observed_try, try);
 //    Dbprintf_usb("Dbg USART max observed try %i", highest_observed_try);
-    return nbBytesRcv;
+    return bytes_rcv;
 }
 
 // transfer from device to client
-inline int usart_writebuffer_sync(uint8_t *data, size_t len) {
+int usart_writebuffer_sync(uint8_t *data, size_t len) {
 
     // Wait for current PDC bank to be free
     // (and check next bank too, in case there will be a usart_writebuffer_async)

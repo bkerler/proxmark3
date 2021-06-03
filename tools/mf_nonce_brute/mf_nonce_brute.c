@@ -1,11 +1,5 @@
 #define __STDC_FORMAT_MACROS
 
-#if !defined(_WIN64)
-#if defined(_WIN32) || defined(__WIN32__)
-# define _USE_32BIT_TIME_T 1
-#endif
-#endif
-
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -13,10 +7,17 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <time.h>
+#include <ctype.h>
 #include "crapto1/crapto1.h"
 #include "protocol.h"
 #include "iso14443crc.h"
+#include "util_posix.h"
+
+#define AEND  "\x1b[0m"
+#define _RED_(s) "\x1b[31m" s AEND
+#define _GREEN_(s) "\x1b[32m" s AEND
+#define _YELLOW_(s) "\x1b[33m" s AEND
+#define _CYAN_(s) "\x1b[36m" s AEND
 
 #define odd_parity(i) (( (i) ^ (i)>>1 ^ (i)>>2 ^ (i)>>3 ^ (i)>>4 ^ (i)>>5 ^ (i)>>6 ^ (i)>>7 ^ 1) & 0x01)
 
@@ -42,23 +43,148 @@ typedef struct thread_args {
     bool ev1;
 } targs;
 
+#define ENC_LEN  (200)
+typedef struct thread_key_args {
+    int thread;
+    int idx;
+    uint32_t uid;
+    uint32_t part_key;
+    uint32_t nt_enc;
+    uint32_t nr_enc;
+    uint16_t enc_len;
+    uint8_t enc[ENC_LEN];  // next encrypted command + a full read/write
+} targs_key;
+
 //------------------------------------------------------------------
-uint8_t cmds[] = {
-    ISO14443A_CMD_READBLOCK,
-    ISO14443A_CMD_WRITEBLOCK,
-    MIFARE_AUTH_KEYA,
-    MIFARE_AUTH_KEYB,
-    MIFARE_CMD_INC,
-    MIFARE_CMD_DEC,
-    MIFARE_CMD_RESTORE,
-    MIFARE_CMD_TRANSFER
+
+uint8_t cmds[8][2] = {
+    {ISO14443A_CMD_READBLOCK, 18},
+    {ISO14443A_CMD_WRITEBLOCK, 18},
+    {MIFARE_AUTH_KEYA, 0},
+    {MIFARE_AUTH_KEYB, 0},
+    {MIFARE_CMD_INC, 6},
+    {MIFARE_CMD_DEC, 6},
+    {MIFARE_CMD_RESTORE, 6},
+    {MIFARE_CMD_TRANSFER, 0}
 };
 
-int global_counter = 0;
-int global_fin_flag = 0;
-int global_found = 0;
-int global_found_candidate = 0;
-size_t thread_count = 2;
+//static int global_counter = 0;
+static int global_found = 0;
+static int global_found_candidate = 0;
+static uint64_t global_candidate_key = 0;
+static int thread_count = 2;
+
+static int param_getptr(const char *line, int *bg, int *en, int paramnum) {
+    int i;
+    int len = strlen(line);
+
+    *bg = 0;
+    *en = 0;
+
+    // skip spaces
+    while (line[*bg] == ' ' || line[*bg] == '\t')(*bg)++;
+    if (*bg >= len) {
+        return 1;
+    }
+
+    for (i = 0; i < paramnum; i++) {
+        while (line[*bg] != ' ' && line[*bg] != '\t' && line[*bg] != '\0')(*bg)++;
+        while (line[*bg] == ' ' || line[*bg] == '\t')(*bg)++;
+
+        if (line[*bg] == '\0') return 1;
+    }
+
+    *en = *bg;
+    while (line[*en] != ' ' && line[*en] != '\t' && line[*en] != '\0')(*en)++;
+
+    (*en)--;
+
+    return 0;
+}
+
+static int param_gethex_to_eol(const char *line, int paramnum, uint8_t *data, int maxdatalen, int *datalen) {
+    int bg, en;
+    uint32_t temp;
+    char buf[5] = {0};
+
+    if (param_getptr(line, &bg, &en, paramnum)) return 1;
+
+    *datalen = 0;
+
+    int indx = bg;
+    while (line[indx]) {
+        if (line[indx] == '\t' || line[indx] == ' ') {
+            indx++;
+            continue;
+        }
+
+        if (isxdigit(line[indx])) {
+            buf[strlen(buf) + 1] = 0x00;
+            buf[strlen(buf)] = line[indx];
+        } else {
+            // if we have symbols other than spaces and hex
+            return 1;
+        }
+
+        if (*datalen >= maxdatalen) {
+            // if we dont have space in buffer and have symbols to translate
+            return 2;
+        }
+
+        if (strlen(buf) >= 2) {
+            sscanf(buf, "%x", &temp);
+            data[*datalen] = (uint8_t)(temp & 0xff);
+            *buf = 0;
+            (*datalen)++;
+        }
+
+        indx++;
+    }
+
+    if (strlen(buf) > 0)
+        //error when not completed hex bytes
+        return 3;
+
+    return 0;
+}
+
+static void hex_to_buffer(const uint8_t *buf, const uint8_t *hex_data, const size_t hex_len, const size_t hex_max_len,
+                          const size_t min_str_len, const size_t spaces_between, bool uppercase) {
+
+    if (buf == NULL) return;
+
+    char *tmp = (char *)buf;
+    size_t i;
+    memset(tmp, 0x00, hex_max_len);
+
+    size_t max_len = (hex_len > hex_max_len) ? hex_max_len : hex_len;
+
+    for (i = 0; i < max_len; ++i, tmp += 2 + spaces_between) {
+        sprintf(tmp, (uppercase) ? "%02X" : "%02x", (unsigned int) hex_data[i]);
+
+        for (size_t j = 0; j < spaces_between; j++)
+            sprintf(tmp + 2 + j, " ");
+    }
+
+    i *= (2 + spaces_between);
+
+    size_t mlen = min_str_len > i ? min_str_len : 0;
+    if (mlen > hex_max_len)
+        mlen = hex_max_len;
+
+    for (; i < mlen; i++, tmp += 1)
+        sprintf(tmp, " ");
+
+    // remove last space
+    *tmp = '\0';
+    return;
+}
+
+static char *sprint_hex_inrow_ex(const uint8_t *data, const size_t len, const size_t min_str_len) {
+    static char buf[100] = {0};
+    hex_to_buffer((uint8_t *)buf, data, len, sizeof(buf) - 1, min_str_len, 0, true);
+    return buf;
+}
 
 static uint16_t parity_from_err(uint32_t data, uint16_t par_err) {
 
@@ -196,9 +322,29 @@ static bool candidate_nonce(uint32_t xored, uint32_t nt, bool ev1) {
 
 static bool checkValidCmd(uint32_t decrypted) {
     uint8_t cmd = (decrypted >> 24) & 0xFF;
-    for (int i = 0; i < sizeof(cmds); ++i) {
-        if (cmd == cmds[i])
+    for (int i = 0; i < 8; ++i) {
+        if (cmd == cmds[i][0])
             return true;
+    }
+    return false;
+}
+
+static bool checkValidCmdByte(uint8_t *cmd, uint16_t n) {
+
+    bool ok = false;
+    for (int i = 0; i < 8; ++i) {
+        if (cmd[0] == cmds[i][0]) {
+
+            if (n >= 4)
+                ok = CheckCrc14443(CRC_14443_A, cmd, 4);
+
+            if (cmds[i][1] > 0 && n >= cmds[i][1])
+                ok = CheckCrc14443(CRC_14443_A, cmd + 4, cmds[i][1]);
+
+            if (ok) {
+                return true;
+            }
+        }
     }
     return false;
 }
@@ -218,7 +364,7 @@ static void *brute_thread(void *arguments) {
     //int shift = (int)arg;
     struct thread_args *args = (struct thread_args *) arguments;
 
-    struct Crypto1State *revstate;
+    struct Crypto1State *revstate = NULL;
     uint64_t key;     // recovered key candidate
     uint32_t ks2;     // keystream used to encrypt reader response
     uint32_t ks3;     // keystream used to encrypt tag response
@@ -227,18 +373,18 @@ static void *brute_thread(void *arguments) {
 
     uint32_t p64 = 0;
     uint32_t count;
-    int found = 0;
     // TC == 4  (
     // threads calls 0 ev1 == false
     // threads calls 0,1,2  ev1 == true
-    for (count = args->idx; count < 0xFFFF; count += thread_count - 1) {
+    for (count = args->idx; count <= 0xFFFF; count += thread_count - 1) {
 
-        found = global_found;
-        if (found) break;
+        if (__atomic_load_n(&global_found, __ATOMIC_ACQUIRE) == 1) {
+            break;
+        }
 
         nt = count << 16 | prng_successor(count, 16);
 
-        if (!candidate_nonce(args->xored, nt, args->ev1))
+        if (candidate_nonce(args->xored, nt, args->ev1) == false)
             continue;
 
         p64 = prng_successor(nt, 64);
@@ -263,23 +409,25 @@ static void *brute_thread(void *arguments) {
 #endif
             if (cmd_enc) {
                 uint32_t decrypted = ks4 ^ cmd_enc;
-                printf("CMD enc(%08x)\n", cmd_enc);
-                printf("    dec(%08x)\t", decrypted);
+                printf("CMD enc( %08x )\n", cmd_enc);
+                printf("    dec( %08x )    ", decrypted);
 
-                uint8_t isOK = 0;
                 // check if cmd exists
-                isOK = checkValidCmd(decrypted);
-                (void)isOK;
+                uint8_t isOK = checkValidCmd(decrypted);
+                if (isOK == false) {
+                    printf(_RED_("<-- not a valid cmd\n"));
+                    pthread_mutex_unlock(&print_lock);
+                    continue;
+                }
 
                 // Add a crc-check.
                 isOK = checkCRC(decrypted);
-
-                if (!isOK) {
-                    printf("<-- not a valid cmd\n");
+                if (isOK == false) {
+                    printf(_RED_("<-- not a valid crc\n"));
                     pthread_mutex_unlock(&print_lock);
                     continue;
                 } else {
-                    printf("<-- Valid cmd\n");
+                    printf("<-- valid cmd\n");
                 }
             }
 
@@ -289,34 +437,101 @@ static void *brute_thread(void *arguments) {
             lfsr_rollback_word(revstate, nr_enc, 1);
             lfsr_rollback_word(revstate, uid ^ nt, 0);
             crypto1_get_lfsr(revstate, &key);
-            free(revstate);
 
             if (args->ev1) {
-                printf("\nKey candidate: [%012" PRIx64 "]\n\n", key);
+                // if it was EV1,  we know for sure xxxAAAAAAAA recovery
+                printf("\nKey candidate [ " _YELLOW_("....%08" PRIx64)" ]\n\n", key & 0xFFFFFFFF);
                 __sync_fetch_and_add(&global_found_candidate, 1);
             } else {
-                printf("\nValid Key found: [%012" PRIx64 "]\n\n", key);
+                printf("\nKey candidate [ " _GREEN_("....%08" PRIx64) " ]\n\n", key & 0xFFFFFFFF);
                 __sync_fetch_and_add(&global_found, 1);
             }
             //release lock
             pthread_mutex_unlock(&print_lock);
+            __sync_fetch_and_add(&global_candidate_key, key);
+            free(revstate);
+            break;
         }
+        free(revstate);
     }
+    free(args);
+    return NULL;
+}
+
+static void *brute_key_thread(void *arguments) {
+
+    struct thread_key_args *args = (struct thread_key_args *) arguments;
+    uint64_t key = args->part_key;
+    uint8_t local_enc[args->enc_len];
+    memcpy(local_enc, args->enc, args->enc_len);
+
+    for (uint64_t count = args->idx; count <= 0xFFFF; count += thread_count) {
+
+        if (__atomic_load_n(&global_found, __ATOMIC_ACQUIRE) == 1) {
+            break;
+        }
+
+        key = args->part_key | (count << 32);
+
+        // Init cipher with key
+        struct Crypto1State *pcs = crypto1_create(key);
+
+        // NESTED decrypt nt with help of new key
+        crypto1_word(pcs, args->nt_enc ^ args->uid, 1);
+        crypto1_word(pcs, args->nr_enc, 1);
+        crypto1_word(pcs, 0, 0);
+        crypto1_word(pcs, 0, 0);
+
+        // decrypt 22 bytes
+        uint8_t dec[args->enc_len];
+        for (int i = 0; i < args->enc_len; i++)
+            dec[i] = crypto1_byte(pcs, 0x00, 0) ^ local_enc[i];
+
+        crypto1_destroy(pcs);
+
+        // check if cmd exists
+        if (checkValidCmdByte(dec, args->enc_len) == false) {
+            continue;
+        }
+        __sync_fetch_and_add(&global_found, 1);
+
+        // lock this section to avoid interlacing prints from different threats
+        pthread_mutex_lock(&print_lock);
+        printf("\nenc:  %s\n", sprint_hex_inrow_ex(local_enc, args->enc_len, 0));
+        printf("dec:  %s\n", sprint_hex_inrow_ex(dec, args->enc_len, 0));
+        printf("\nValid Key found [ " _GREEN_("%012" PRIx64) " ]\n\n", key);
+        pthread_mutex_unlock(&print_lock);
+        break;
+    }
+    free(args);
     return NULL;
 }
 
 static int usage(void) {
-    printf(" syntax: mf_nonce_brute <uid> <nt> <nt_par_err> <nr> <ar> <ar_par_err> <at> <at_par_err> [<next_command>]\n\n");
-    printf(" example:   nt in trace = 8c! 42 e6! 4e!\n");
-    printf("                     nt = 8c42e64e\n");
-    printf("             nt_par_err = 1011\n\n");
-    printf("\n expected outcome:\n");
-    printf("  KEY 0xFFFFFFFFFFFF ==   fa247164 fb47c594 0000 71909d28 0c254817 1000 0dc7cfbd 1110\n");
+    printf("\n");
+    printf("syntax:  mf_nonce_brute <uid> <nt> <nt_par_err> <nr> <ar> <ar_par_err> <at> <at_par_err> [<next_command>]\n\n");
+    printf("how to convert trace data to needed input:\n");
+    printf("    nt in trace = 8c! 42 e6! 4e!\n");
+    printf("             nt = 8c42e64e\n");
+    printf("     nt_par_err = 1011\n\n");
+    printf("samples:\n");
+    printf("\n");
+    printf("  ./mf_nonce_brute fa247164 fb47c594 0000 71909d28 0c254817 1000 0dc7cfbd 1110\n");
+    printf("\n");
+    printf("**** Possible key candidate ****\n");
+    printf("Key candidate: [....ffffffff]\n");
+    printf("Too few next cmd bytes, skipping phase 2\n");
+    printf("\n");
+    printf("  ./mf_nonce_brute 96519578 d7e3c6ac 0011 cd311951 9da49e49 0010 2bb22e00 0100 a4f7f398ebdb4e484d1cb2b174b939d18b469f3fa5d9caab\n");
+    printf("\n");
+    printf("enc:  A4F7F398EBDB4E484D1CB2B174B939D18B469F3FA5D9CAABBFA018EC7E0CC5721DE2E590F64BD0A5B4EFCE71\n");
+    printf("dec:  30084A24302F8102F44CA5020500A60881010104763930084A24302F8102F44CA5020500A608810101047639\n");
+    printf("Valid Key found: [3b7e4fd575ad]\n\n");
     return 1;
 }
 
 int main(int argc, char *argv[]) {
-    printf("Mifare classic nested auth key recovery. Phase 1.\n");
+    printf("\nMifare classic nested auth key recovery\n\n");
 
     if (argc < 9) return usage();
 
@@ -329,23 +544,29 @@ int main(int argc, char *argv[]) {
     sscanf(argv[7], "%x", &at_enc);
     sscanf(argv[8], "%x", &at_par_err);
 
-    if (argc > 9)
-        sscanf(argv[9], "%x", &cmd_enc);
+    int enc_len = 0;
+    uint8_t enc[ENC_LEN] = {0};  // next encrypted command + a full read/write
+    if (argc > 9) {
+//        sscanf(argv[9], "%x", &cmd_enc);
+        param_gethex_to_eol(argv[9], 0, enc, sizeof(enc), &enc_len);
+        cmd_enc = (enc[0] << 24 | enc[1] << 16 | enc[2] << 8 | enc[3]);
+    }
 
-    printf("-------------------------------------------------\n");
-    printf("uid:\t\t%08x\n", uid);
-    printf("nt encrypted:\t%08x\n", nt_enc);
-    printf("nt parity err:\t%04x\n", nt_par_err);
-    printf("nr encrypted:\t%08x\n", nr_enc);
-    printf("ar encrypted:\t%08x\n", ar_enc);
-    printf("ar parity err:\t%04x\n", ar_par_err);
-    printf("at encrypted:\t%08x\n", at_enc);
-    printf("at parity err:\t%04x\n", at_par_err);
+    printf("----------- " _CYAN_("Phase 1") " ------------------------\n");
+    printf("uid.................. %08x\n", uid);
+    printf("nt encrypted......... %08x\n", nt_enc);
+    printf("nt parity err........ %04x\n", nt_par_err);
+    printf("nr encrypted......... %08x\n", nr_enc);
+    printf("ar encrypted......... %08x\n", ar_enc);
+    printf("ar parity err........ %04x\n", ar_par_err);
+    printf("at encrypted......... %08x\n", at_enc);
+    printf("at parity err........ %04x\n", at_par_err);
 
-    if (argc > 9)
-        printf("next cmd enc:\t%08x\n\n", cmd_enc);
+    if (argc > 9) {
+        printf("next encrypted cmd... %s\n", sprint_hex_inrow_ex(enc, enc_len, 0));
+    }
 
-    clock_t t1 = clock();
+    uint64_t t1 = msclock();
     uint16_t nt_par = parity_from_err(nt_enc, nt_par_err);
     uint16_t ar_par = parity_from_err(ar_enc, ar_par_err);
     uint16_t at_par = parity_from_err(at_enc, at_par_err);
@@ -359,7 +580,8 @@ int main(int argc, char *argv[]) {
         thread_count = 2;
 #endif  /* _WIN32 */
 
-    printf("\nBruteforce using %zu threads to find encrypted tagnonce last bytes\n", thread_count);
+    printf("\nBruteforce using " _YELLOW_("%d") " threads\n", thread_count);
+    printf("looking for the last bytes of the encrypted tagnonce\n");
 
     pthread_t threads[thread_count];
 
@@ -367,7 +589,7 @@ int main(int argc, char *argv[]) {
     pthread_mutex_init(&print_lock, NULL);
 
     // one thread T0 for none EV1.
-    struct thread_args *a = malloc(sizeof(struct thread_args));
+    struct thread_args *a = calloc(1, sizeof(struct thread_args));
     a->xored = xored;
     a->thread = 0;
     a->idx = 0;
@@ -376,7 +598,7 @@ int main(int argc, char *argv[]) {
 
     // the rest of available threads to EV1 scenario
     for (int i = 0; i < thread_count - 1; ++i) {
-        struct thread_args *b = malloc(sizeof(struct thread_args));
+        struct thread_args *b = calloc(1, sizeof(struct thread_args));
         b->xored = xored;
         b->thread = i + 1;
         b->idx = i;
@@ -388,14 +610,56 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < thread_count; ++i)
         pthread_join(threads[i], NULL);
 
+    t1 = msclock() - t1;
+    printf("execution time " _YELLOW_("%.2f") " sec\n", (float)t1 / 1000.0);
+
+
     if (!global_found && !global_found_candidate) {
         printf("\nFailed to find a key\n\n");
+        goto out;
     }
 
-    t1 = clock() - t1;
-    if (t1 > 0)
-        printf("Execution time: %.0f ticks\n", (float)t1);
+    if (enc_len < 4) {
+        printf("Too few next cmd bytes, skipping phase 2\n");
+        goto out;
+    }
 
+    // reset thread signals
+    global_found = 0;
+    global_found_candidate = 0;
+
+    printf("\n----------- " _CYAN_("Phase 2") " ------------------------\n");
+    printf("uid.................. %08x\n", uid);
+    printf("partial key.......... %08x\n", (uint32_t)(global_candidate_key & 0xFFFFFFFF));
+    printf("nt enc............... %08x\n", nt_enc);
+    printf("nr enc............... %08x\n", nr_enc);
+    printf("next encrypted cmd... %s\n", sprint_hex_inrow_ex(enc, enc_len, 0));
+    printf("\nlooking for the upper 16 bits of key\n");
+    fflush(stdout);
+
+    // threads
+    for (int i = 0; i < thread_count; ++i) {
+        struct thread_key_args *b = malloc(sizeof(struct thread_key_args));
+        b->thread = i;
+        b->idx = i;
+        b->uid = uid;
+        b->part_key = (uint32_t)(global_candidate_key & 0xFFFFFFFF);
+        b->nt_enc = nt_enc;
+        b->nr_enc = nr_enc;
+        b->enc_len = enc_len;
+        memcpy(b->enc, enc, enc_len);
+        pthread_create(&threads[i], NULL, brute_key_thread, (void *)b);
+    }
+
+    // wait for threads to terminate:
+    for (int i = 0; i < thread_count; ++i)
+        pthread_join(threads[i], NULL);
+
+    if (!global_found && !global_found_candidate) {
+        printf("\nfailed to find a key\n\n");
+    }
+
+out:
     // clean up mutex
     pthread_mutex_destroy(&print_lock);
     return 0;

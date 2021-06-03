@@ -56,6 +56,10 @@ struct version_information {
 #define DBG_EXTENDED      4 // errors + info + debug + breaking debug messages
 extern int DBGLEVEL;
 
+// tear-off
+extern uint16_t tearoff_delay_us;
+extern bool tearoff_enabled;
+
 // reader voltage field detector
 #define MF_MINFIELDV      4000
 
@@ -125,6 +129,15 @@ extern int DBGLEVEL;
      (((x) & 0x0000ff00) <<  8) | (((x) & 0x000000ff) << 24))
 #endif
 #endif
+#endif
+
+// convert 2 bytes to U16
+#ifndef BYTES2UINT16
+# define BYTES2UINT16(x) ((x[1] << 8) | (x[0]))
+#endif
+// convert 4 bytes to U32
+#ifndef BYTES2UINT32
+# define BYTES2UINT32(x) ((x[3] << 24) | (x[2] << 16) | (x[1] << 8) | (x[0]))
 #endif
 
 #define EVEN                        0

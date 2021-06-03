@@ -47,6 +47,9 @@
 #include "commonutil.h"
 #include "proxmark3.h"
 #include "util.h"
+#include "cmdhficlass.h"  // pagemap
+#include "protocols.h"    // iclass defines
+
 #ifdef _WIN32
 #include "scandir.h"
 #include <direct.h>
@@ -73,6 +76,44 @@ struct wave_info_t {
         uint32_t size;
     } PACKED audio_data;
 } PACKED;
+
+/**
+ * @brief detects if file is of a supported filetype based on extension
+ * @param filename
+ * @return o
+ */
+DumpFileType_t getfiletype(const char *filename) {
+    // assume unknown file is BINARY
+    DumpFileType_t o = BIN;
+    if (filename == NULL) {
+        return o;
+    }
+
+    size_t len = strlen(filename);
+    if (len > 4) {
+        //  check if valid file extension and attempt to load data
+        char s[FILE_PATH_SIZE];
+        memset(s, 0, sizeof(s));
+        memcpy(s, filename, len);
+        str_lower(s);
+
+        if (str_endswith(s, "bin")) {
+            o = BIN;
+        } else if (str_endswith(s, "eml")) {
+            o = EML;
+        } else if (str_endswith(s, "json")) {
+            o = JSON;
+        } else if (str_endswith(s, "dic")) {
+            o = DICTIONARY;
+        } else {
+            // mfd, trc, trace is binary
+            o = BIN;
+            // log is text
+            // .pm3 is text values of signal data
+        }
+    }
+    return o;
+}
 
 /**
  * @brief checks if a file exists
@@ -192,12 +233,12 @@ bool create_path(const char *dirname) {
     return true;
 }
 */
-/*
-bool setDefaultPath (savePaths_t pathIndex,const char *Path) {
+
+bool setDefaultPath(savePaths_t pathIndex, const char *Path) {
 
     if (pathIndex < spItemCount) {
         if ((Path == NULL) && (session.defaultPaths[pathIndex] != NULL)) {
-            free (session.defaultPaths[pathIndex]);
+            free(session.defaultPaths[pathIndex]);
             session.defaultPaths[pathIndex] = NULL;
         }
 
@@ -205,13 +246,11 @@ bool setDefaultPath (savePaths_t pathIndex,const char *Path) {
             session.defaultPaths[pathIndex] = (char *)realloc(session.defaultPaths[pathIndex], strlen(Path) + 1);
             strcpy(session.defaultPaths[pathIndex], Path);
         }
-    } else {
-        return false;
+        return true;
     }
-
-    return true;
+    return false;
 }
-*/
+
 static char *filenamemcopy(const char *preferredName, const char *suffix) {
     if (preferredName == NULL) return NULL;
     if (suffix == NULL) return NULL;
@@ -426,15 +465,28 @@ int saveFileJSONex(const char *preferredName, JSONFileType ftype, uint8_t *data,
         }
         case jsfIclass: {
             JsonSaveStr(root, "FileType", "iclass");
-            uint8_t csn[8] = {0};
-            memcpy(csn, data, 8);
-            JsonSaveBufAsHexCompact(root, "$.Card.CSN", csn, sizeof(csn));
+
+            picopass_hdr_t *hdr = (picopass_hdr_t *)data;
+            JsonSaveBufAsHexCompact(root, "$.Card.CSN", hdr->csn, sizeof(hdr->csn));
+            JsonSaveBufAsHexCompact(root, "$.Card.Configuration", (uint8_t *)&hdr->conf, sizeof(hdr->conf));
+
+            uint8_t pagemap = get_pagemap(hdr);
+            if (pagemap == PICOPASS_NON_SECURE_PAGEMODE) {
+                picopass_ns_hdr_t *ns_hdr = (picopass_ns_hdr_t *)data;
+                JsonSaveBufAsHexCompact(root, "$.Card.AIA", ns_hdr->app_issuer_area, sizeof(ns_hdr->app_issuer_area));
+            } else {
+                JsonSaveBufAsHexCompact(root, "$.Card.Epurse", hdr->epurse, sizeof(hdr->epurse));
+                JsonSaveBufAsHexCompact(root, "$.Card.Kd", hdr->key_d, sizeof(hdr->key_d));
+                JsonSaveBufAsHexCompact(root, "$.Card.Kc", hdr->key_c, sizeof(hdr->key_c));
+                JsonSaveBufAsHexCompact(root, "$.Card.AIA", hdr->app_issuer_area, sizeof(hdr->app_issuer_area));
+            }
 
             for (size_t i = 0; i < (datalen / 8); i++) {
                 char path[PATH_MAX_LENGTH] = {0};
                 sprintf(path, "$.blocks.%zu", i);
                 JsonSaveBufAsHexCompact(root, path, data + (i * 8), 8);
             }
+
             break;
         }
         case jsfT55x7: {
@@ -470,6 +522,47 @@ int saveFileJSONex(const char *preferredName, JSONFileType ftype, uint8_t *data,
             uint8_t conf[4] = {0};
             memcpy(conf, data, 4);
             JsonSaveBufAsHexCompact(root, "$.Card.ConfigBlock", conf, sizeof(conf));
+
+            for (size_t i = 0; i < (datalen / 4); i++) {
+                char path[PATH_MAX_LENGTH] = {0};
+                sprintf(path, "$.blocks.%zu", i);
+                JsonSaveBufAsHexCompact(root, path, data + (i * 4), 4);
+            }
+            break;
+        }
+        case jsfEM4x05: {
+            JsonSaveStr(root, "FileType", "EM4205/EM4305");
+            JsonSaveBufAsHexCompact(root, "$.Card.UID", data + (1 * 4), 4);
+            JsonSaveBufAsHexCompact(root, "$.Card.Config", data + (4 * 4), 4);
+            JsonSaveBufAsHexCompact(root, "$.Card.Protection1", data + (14 * 4), 4);
+            JsonSaveBufAsHexCompact(root, "$.Card.Protection2", data + (15 * 4), 4);
+
+            for (size_t i = 0; i < (datalen / 4); i++) {
+                char path[PATH_MAX_LENGTH] = {0};
+                sprintf(path, "$.blocks.%zu", i);
+                JsonSaveBufAsHexCompact(root, path, data + (i * 4), 4);
+            }
+            break;
+        }
+        case jsfEM4x69: {
+            JsonSaveStr(root, "FileType", "EM4469/EM4569");
+            JsonSaveBufAsHexCompact(root, "$.Card.UID", data + (1 * 4), 4);
+            JsonSaveBufAsHexCompact(root, "$.Card.Protection", data + (3 * 4), 4);
+            JsonSaveBufAsHexCompact(root, "$.Card.Config", data + (4 * 4), 4);
+
+            for (size_t i = 0; i < (datalen / 4); i++) {
+                char path[PATH_MAX_LENGTH] = {0};
+                sprintf(path, "$.blocks.%zu", i);
+                JsonSaveBufAsHexCompact(root, path, data + (i * 4), 4);
+            }
+            break;
+        }
+        case jsfEM4x50: {
+            JsonSaveStr(root, "FileType", "EM4X50");
+            JsonSaveBufAsHexCompact(root, "$.Card.Protection", data + (1 * 4), 4);
+            JsonSaveBufAsHexCompact(root, "$.Card.Config", data + (2 * 4), 4);
+            JsonSaveBufAsHexCompact(root, "$.Card.Serial", data + (32 * 4), 4);
+            JsonSaveBufAsHexCompact(root, "$.Card.UID", data + (33 * 4), 4);
 
             for (size_t i = 0; i < (datalen / 4); i++) {
                 char path[PATH_MAX_LENGTH] = {0};
@@ -546,6 +639,9 @@ int saveFileJSONex(const char *preferredName, JSONFileType ftype, uint8_t *data,
             }
             break;
         }
+        case jsfFido: {
+            break;
+        }
         case jsfCustom: {
             (*callback)(root);
             break;
@@ -557,18 +653,48 @@ int saveFileJSONex(const char *preferredName, JSONFileType ftype, uint8_t *data,
     int res = json_dump_file(root, fileName, JSON_INDENT(2));
     if (res) {
         PrintAndLogEx(FAILED, "error: can't save the file: " _YELLOW_("%s"), fileName);
-        json_decref(root);
         retval = 200;
         goto out;
     }
-    if (verbose)
-        PrintAndLogEx(SUCCESS, "saved to json file " _YELLOW_("%s"), fileName);
 
-    json_decref(root);
+    if (verbose) {
+        PrintAndLogEx(SUCCESS, "saved to json file " _YELLOW_("%s"), fileName);
+    }
 
 out:
+    json_decref(root);
     free(fileName);
     return retval;
+}
+int saveFileJSONroot(const char *preferredName, void *root, size_t flags, bool verbose) {
+    return saveFileJSONrootEx(preferredName, root, flags, verbose, false);
+}
+int saveFileJSONrootEx(const char *preferredName, void *root, size_t flags, bool verbose, bool overwrite) {
+    if (root == NULL)
+        return PM3_EINVARG;
+
+    char *filename = NULL;
+    if (overwrite)
+        filename = filenamemcopy(preferredName, ".json");
+    else
+        filename = newfilenamemcopy(preferredName, ".json");
+
+    if (filename == NULL)
+        return PM3_EMALLOC;
+
+    int res = json_dump_file(root, filename, flags);
+
+    if (res == 0) {
+        if (verbose) {
+            PrintAndLogEx(SUCCESS, "saved to json file " _YELLOW_("%s"), filename);
+        }
+        free(filename);
+        return PM3_SUCCESS;
+    } else {
+        PrintAndLogEx(FAILED, "error: can't save the file: " _YELLOW_("%s"), filename);
+    }
+    free(filename);
+    return PM3_EFILE;
 }
 
 int saveFileWAVE(const char *preferredName, int *data, size_t datalen) {
@@ -677,7 +803,8 @@ int createMfcKeyDump(const char *preferredName, uint8_t sectorsCnt, sector_t *e_
 
     fflush(f);
     fclose(f);
-    PrintAndLogEx(SUCCESS, "Found keys have been dumped to " _YELLOW_("%s")"--> 0xffffffffffff has been inserted for unknown keys.", fileName);
+    PrintAndLogEx(SUCCESS, "Found keys have been dumped to " _YELLOW_("%s"), fileName);
+    PrintAndLogEx(INFO, "FYI! --> " _YELLOW_("0xFFFFFFFFFFFF") " <-- has been inserted for unknown keys where " _YELLOW_("res") " is " _YELLOW_("0"));
     free(fileName);
     return PM3_SUCCESS;
 }
@@ -857,7 +984,6 @@ out:
     free(fileName);
     return retval;
 }
-
 int loadFileEML_safe(const char *preferredName, void **pdata, size_t *datalen) {
     char *path;
     int res = searchFile(&path, RESOURCES_SUBDIR, preferredName, "", false);
@@ -1095,12 +1221,72 @@ int loadFileJSONex(const char *preferredName, void *data, size_t maxdatalen, siz
         *datalen = sptr;
     }
 
+    if (!strcmp(ctype, "EM4X50")) {
+        size_t sptr = 0;
+        for (size_t i = 0; i < (maxdatalen / 4); i++) {
+            if (sptr + 4 > maxdatalen) {
+                retval = PM3_EMALLOC;
+                goto out;
+            }
+
+            char blocks[30] = {0};
+            sprintf(blocks, "$.blocks.%zu", i);
+
+            size_t len = 0;
+            JsonLoadBufAsHex(root, blocks, &udata[sptr], 4, &len);
+            if (!len)
+                break;
+
+            sptr += len;
+        }
+        *datalen = sptr;
+    }
+
+    if (!strcmp(ctype, "15693")) {
+        JsonLoadBufAsHex(root, "$.raw", udata, maxdatalen, datalen);
+    }
+
 out:
 
     if (callback != NULL) {
         (*callback)(root);
     }
 
+    json_decref(root);
+    return retval;
+}
+
+int loadFileJSONroot(const char *preferredName, void **proot, bool verbose) {
+    char *path;
+    int res = searchFile(&path, RESOURCES_SUBDIR, preferredName, ".json", false);
+    if (res != PM3_SUCCESS) {
+        return PM3_EFILE;
+    }
+
+    json_error_t error;
+    json_t *root = json_load_file(path, 0, &error);
+    if (verbose)
+        PrintAndLogEx(SUCCESS, "loaded from JSON file " _YELLOW_("%s"), path);
+
+    free(path);
+
+    int retval = PM3_SUCCESS;
+    if (root == NULL) {
+        PrintAndLogEx(ERR, "ERROR: json " _YELLOW_("%s") " error on line %d: %s", preferredName, error.line, error.text);
+        retval = PM3_ESOFT;
+        goto out;
+    }
+
+    if (!json_is_object(root)) {
+        PrintAndLogEx(ERR, "ERROR: Invalid json " _YELLOW_("%s") " format. root must be an object.", preferredName);
+        retval = PM3_ESOFT;
+        goto out;
+    }
+
+    *proot = root;
+    return PM3_SUCCESS;
+
+out:
     json_decref(root);
     return retval;
 }
@@ -1439,21 +1625,56 @@ int convert_mfu_dump_format(uint8_t **dump, size_t *dumplen, bool verbose) {
     }
 }
 
-static int filelist(const char *path, const char *ext, bool last, bool tentative) {
+static int filelist(const char *path, const char *ext, uint8_t last, bool tentative, uint8_t indent, uint16_t strip) {
     struct dirent **namelist;
     int n;
 
     n = scandir(path, &namelist, NULL, alphasort);
     if (n == -1) {
-        if (!tentative)
-            PrintAndLogEx(NORMAL, "%s── %s", last ? "└" : "├", path);
+
+        if (tentative == false) {
+
+            for (uint8_t j = 0; j < indent; j++) {
+                PrintAndLogEx(NORMAL, "%s   " NOLF, ((last >> j) & 1) ? " " : "│");
+            }
+            PrintAndLogEx(NORMAL, "%s── "_GREEN_("%s"), last ? "└" : "├", &path[strip]);
+        }
         return PM3_EFILE;
     }
 
-    PrintAndLogEx(NORMAL, "%s── %s", last ? "└" : "├", path);
+    for (uint8_t j = 0; j < indent; j++) {
+        PrintAndLogEx(NORMAL, "%s   " NOLF, ((last >> j) & 1) ? " " : "│");
+    }
+
+    PrintAndLogEx(NORMAL, "%s── "_GREEN_("%s"), last ? "└" : "├", &path[strip]);
+
     for (uint16_t i = 0; i < n; i++) {
-        if (((ext == NULL) && (namelist[i]->d_name[0] != '.')) || (ext && (str_endswith(namelist[i]->d_name, ext)))) {
-            PrintAndLogEx(NORMAL, "%s   %s── %-21s", last ? " " : "│", i == n - 1 ? "└" : "├", namelist[i]->d_name);
+
+        char tmp_fullpath[1024] = {0};
+        strncat(tmp_fullpath, path, sizeof(tmp_fullpath) - 1);
+        tmp_fullpath[1023] = 0x00;
+        strncat(tmp_fullpath, namelist[i]->d_name, strlen(tmp_fullpath) - 1);
+
+        if (is_directory(tmp_fullpath)) {
+
+            char newpath[1024];
+            if (strcmp(namelist[i]->d_name, ".") == 0 || strcmp(namelist[i]->d_name, "..") == 0)
+                continue;
+
+            snprintf(newpath, sizeof(newpath), "%s", path);
+            strncat(newpath, namelist[i]->d_name, sizeof(newpath) - strlen(newpath) - 1);
+            strncat(newpath, "/", sizeof(newpath) - strlen(newpath) - 1);
+
+            filelist(newpath, ext, last + ((i == n - 1) << (indent + 1)), tentative, indent + 1, strlen(path));
+        } else {
+
+            if ((ext == NULL) || ((str_endswith(namelist[i]->d_name, ext)))) {
+
+                for (uint8_t j = 0; j < indent + 1; j++) {
+                    PrintAndLogEx(NORMAL, "%s   " NOLF, ((last >> j) & 1) ? " " : "│");
+                }
+                PrintAndLogEx(NORMAL, "%s── %-21s", i == n - 1 ? "└" : "├", namelist[i]->d_name);
+            }
         }
         free(namelist[i]);
     }
@@ -1468,7 +1689,7 @@ int searchAndList(const char *pm3dir, const char *ext) {
         char script_directory_path[strlen(get_my_executable_directory()) + strlen(pm3dir) + 1];
         strcpy(script_directory_path, get_my_executable_directory());
         strcat(script_directory_path, pm3dir);
-        filelist(script_directory_path, ext, false, true);
+        filelist(script_directory_path, ext, false, true, 0, 0);
     }
     // try pm3 dirs in user .proxmark3 (user mode)
     const char *user_path = get_my_user_directory();
@@ -1477,7 +1698,7 @@ int searchAndList(const char *pm3dir, const char *ext) {
         strcpy(script_directory_path, user_path);
         strcat(script_directory_path, PM3_USER_DIRECTORY);
         strcat(script_directory_path, pm3dir);
-        filelist(script_directory_path, ext, false, false);
+        filelist(script_directory_path, ext, false, false, 0, 0);
     }
     // try pm3 dirs in pm3 installation dir (install mode)
     const char *exec_path = get_my_executable_directory();
@@ -1486,7 +1707,7 @@ int searchAndList(const char *pm3dir, const char *ext) {
         strcpy(script_directory_path, exec_path);
         strcat(script_directory_path, PM3_SHARE_RELPATH);
         strcat(script_directory_path, pm3dir);
-        filelist(script_directory_path, ext, true, false);
+        filelist(script_directory_path, ext, true, false, 0, 0);
     }
     return PM3_SUCCESS;
 }
@@ -1655,7 +1876,7 @@ int searchFile(char **foundpath, const char *pm3dir, const char *searchname, con
     int res = searchFinalFile(foundpath, pm3dir, filename, silent);
     if (res != PM3_SUCCESS) {
         if ((res == PM3_EFILE) && (!silent))
-            PrintAndLogEx(FAILED, "Error - can't find %s", filename);
+            PrintAndLogEx(FAILED, "Error - can't find `" _YELLOW_("%s") "`", filename);
         free(filename);
         return res;
     }

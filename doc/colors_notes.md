@@ -4,19 +4,19 @@
 ## Table of Contents
  * [style/color](#style_color)
  * [Proxspace](#proxspace)
- * [](#)
+ * [help texts](#help-texts)
 
 The client should autodetect color support when starting.
 
 You can also use the command  `pref show` to see and set your personal setting.  
 
-Why use colors in the Proxmark client? When evertyhing is white it is hard to extract the important information fast. You also need new-lines for extra space to be easier to read.
+Why use colors in the Proxmark client? When everything is white it is hard to extract the important information fast. You also need new-lines for extra space to be easier to read.
 We have gradually been introducing this color scheme into the client since we got decent color support on all systems: OSX, Linux, WSL, Proxspace.
 
 
 ## style/color
 ^[Top](#top)
-The following definition has be crystalized out from these experiments.  Its not set in stone yet so take this document as a guideline for how to create unified system scheme.
+The following definition has be crystallized out from these experiments.  Its not set in stone yet so take this document as a guideline for how to create unified system scheme.
 
 ### Definition
 ^[Top](#top)
@@ -48,3 +48,7 @@ Most commands doesn't use a header yet. We added it to make it standout (ie: yel
 ^[Top](#top)
 Proxspace has support for colors.
 
+
+## Help texts
+^[Top](#top)
+The help text uses a hard coded template deep inside the cliparser.c file.

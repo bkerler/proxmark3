@@ -11,15 +11,31 @@
 #include "cliparser.h"
 #include <string.h>
 #include <stdlib.h>
+#include <util.h>   // Get color constants
+#include <ui.h>     // get PrintAndLogEx
+#include <ctype.h>  // tolower
+#include <inttypes.h> // PRIu64
+
 #ifndef ARRAYLEN
 # define ARRAYLEN(x) (sizeof(x)/sizeof((x)[0]))
 #endif
 
+// Custom Colors
+// To default the color return s
+#define _SectionTagColor_(s) _GREEN_(s)
+#define _ExampleColor_(s) _YELLOW_(s)
+#define _CommandColor_(s) _RED_(s)
+#define _DescriptionColor_(s) _CYAN_(s)
+#define _ArgColor_(s) s
+#define _ArgHelpColor_(s) s
+// End Custom Colors
+// Option width set to 30 to allow option descriptions to align.  approx line 74
+// Example width set to 50 to allow help descriptions to align.  approx line 93
+
 int CLIParserInit(CLIParserContext **ctx, const char *vprogramName, const char *vprogramHint, const char *vprogramHelp) {
     *ctx = malloc(sizeof(CLIParserContext));
     if (!*ctx) {
-        printf("ERROR: Insufficient memory\n");
-        fflush(stdout);
+        PrintAndLogEx(ERR, "ERROR: Insufficient memory\n");
         return 2;
     }
     (*ctx)->argtable = NULL;
@@ -31,6 +47,55 @@ int CLIParserInit(CLIParserContext **ctx, const char *vprogramName, const char *
     return 0;
 }
 
+void CLIParserPrintHelp(CLIParserContext *ctx) {
+    if (ctx->programHint)
+        PrintAndLogEx(NORMAL, "\n"_DescriptionColor_("%s"), ctx->programHint);
+
+    PrintAndLogEx(NORMAL, "\n"_SectionTagColor_("usage:"));
+    PrintAndLogEx(NORMAL, "    "_CommandColor_("%s")NOLF, ctx->programName);
+    arg_print_syntax(stdout, ctx->argtable, "\n\n");
+
+    PrintAndLogEx(NORMAL, _SectionTagColor_("options:"));
+
+    arg_print_glossary(stdout, ctx->argtable, "    "_ArgColor_("%-30s")" "_ArgHelpColor_("%s")"\n");
+
+    PrintAndLogEx(NORMAL, "");
+    if (ctx->programHelp) {
+        PrintAndLogEx(NORMAL, _SectionTagColor_("examples/notes:"));
+        char *buf = NULL;
+        int idx = 0;
+        buf = realloc(buf, strlen(ctx->programHelp) + 1); // more then enough as we are splitting
+
+        char *p2; // pointer to split example from comment.
+        int egWidth = 30;
+        for (int i = 0; i <= strlen(ctx->programHelp); i++) {  // <= so to get string terminator.
+            buf[idx++] = ctx->programHelp[i];
+            if ((ctx->programHelp[i] == '\n') || (ctx->programHelp[i] == 0x00)) {
+                buf[idx - 1] = 0x00;
+                p2 = strstr(buf, "->"); // See if the example has a comment.
+                if (p2 != NULL) {
+                    *(p2 - 1) = 0x00;
+
+                    if (strlen(buf) > 28)
+                        egWidth = strlen(buf) + 5;
+                    else
+                        egWidth = 30;
+
+                    PrintAndLogEx(NORMAL, "    "_ExampleColor_("%-*s")" %s", egWidth, buf, p2);
+                } else {
+                    PrintAndLogEx(NORMAL, "    "_ExampleColor_("%-*s"), egWidth, buf);
+                }
+                idx = 0;
+            }
+        }
+
+        PrintAndLogEx(NORMAL, "");
+        free(buf);
+    }
+
+    fflush(stdout);
+}
+
 int CLIParserParseArg(CLIParserContext *ctx, int argc, char **argv, void *vargtable[], size_t vargtableLen, bool allowEmptyExec) {
     int nerrors;
 
@@ -40,7 +105,7 @@ int CLIParserParseArg(CLIParserContext *ctx, int argc, char **argv, void *vargta
     /* verify the argtable[] entries were allocated sucessfully */
     if (arg_nullcheck(ctx->argtable) != 0) {
         /* NULL entries were detected, some allocations must have failed */
-        printf("ERROR: Insufficient memory\n");
+        PrintAndLogEx(ERR, "ERROR: Insufficient memory\n");
         fflush(stdout);
         return 2;
     }
@@ -49,16 +114,7 @@ int CLIParserParseArg(CLIParserContext *ctx, int argc, char **argv, void *vargta
 
     /* special case: '--help' takes precedence over error reporting */
     if ((argc < 2 && !allowEmptyExec) || ((struct arg_lit *)(ctx->argtable)[0])->count > 0) { // help must be the first record
-        printf("Usage: %s", ctx->programName);
-        arg_print_syntaxv(stdout, ctx->argtable, "\n");
-        if (ctx->programHint)
-            printf("%s\n\n", ctx->programHint);
-        arg_print_glossary(stdout, ctx->argtable, "    %-20s %s\n");
-        printf("\n");
-        if (ctx->programHelp)
-            printf("%s \n", ctx->programHelp);
-
-        fflush(stdout);
+        CLIParserPrintHelp(ctx);
         return 1;
     }
 
@@ -66,7 +122,7 @@ int CLIParserParseArg(CLIParserContext *ctx, int argc, char **argv, void *vargta
     if (nerrors > 0) {
         /* Display the error details contained in the arg_end struct.*/
         arg_print_errors(stdout, ((struct arg_end *)(ctx->argtable)[vargtableLen - 1]), ctx->programName);
-        printf("Try '%s --help' for more information.\n", ctx->programName);
+        PrintAndLogEx(WARNING, "Try " _YELLOW_("'%s --help'") " for more information.\n", ctx->programName);
         fflush(stdout);
         return 3;
     }
@@ -151,34 +207,57 @@ int CLIParserParseStringEx(CLIParserContext *ctx, const char *str, void *vargtab
 int CLIParamHexToBuf(struct arg_str *argstr, uint8_t *data, int maxdatalen, int *datalen) {
     *datalen = 0;
 
-    int ibuf = 0;
-    uint8_t tmp_buf[256] = {0};
-    int res = CLIParamStrToBuf(argstr, tmp_buf, maxdatalen * 2, &ibuf); // *2 because here HEX
+    int tmplen = 0;
+    uint8_t tmpstr[(256 * 2) + 1] = {0};
+
+    // concat all strings in argstr into tmpstr[]
+    //
+    int res = CLIParamStrToBuf(argstr, tmpstr, sizeof(tmpstr), &tmplen);
     if (res) {
-        printf("Parameter error: buffer overflow.\n");
-        fflush(stdout);
         return res;
     }
-    if (ibuf == 0) {
+    if (tmplen == 0) {
         return res;
     }
 
-    switch (param_gethex_to_eol((char *)tmp_buf, 0, data, maxdatalen, datalen)) {
+    res = param_gethex_to_eol((char *)tmpstr, 0, data, maxdatalen, datalen);
+    switch (res) {
         case 1:
-            printf("Parameter error: Invalid HEX value.\n");
-            fflush(stdout);
-            return 1;
+            PrintAndLogEx(ERR, "Parameter error: Invalid HEX value\n");
+            break;
         case 2:
-            printf("Parameter error: parameter too large.\n");
-            fflush(stdout);
-            return 2;
+            PrintAndLogEx(ERR, "Parameter error: parameter too large\n");
+            break;
         case 3:
-            printf("Parameter error: Hex string must have even number of digits.\n");
-            fflush(stdout);
-            return 3;
+            PrintAndLogEx(ERR, "Parameter error: Hex string must have EVEN number of digits\n");
+            break;
+    }
+    return res;
+}
+
+int CLIParamBinToBuf(struct arg_str *argstr, uint8_t *data, int maxdatalen, int *datalen) {
+    *datalen = 0;
+
+    int tmplen = 0;
+    uint8_t tmpstr[(256 * 2) + 1] = {0};
+
+    // concat all strings in argstr into tmpstr[]
+    //
+    int res = CLIParamStrToBuf(argstr, tmpstr, sizeof(tmpstr), &tmplen);
+    if (res || tmplen == 0) {
+        return res;
     }
 
-    return 0;
+    res = param_getbin_to_eol((char *)tmpstr, 0, data, maxdatalen, datalen);
+    switch (res) {
+        case 1:
+            PrintAndLogEx(ERR, "Parameter error: Invalid BINARY value\n");
+            break;
+        case 2:
+            PrintAndLogEx(ERR, "Parameter error: parameter too large\n");
+            break;
+    }
+    return res;
 }
 
 int CLIParamStrToBuf(struct arg_str *argstr, uint8_t *data, int maxdatalen, int *datalen) {
@@ -186,27 +265,109 @@ int CLIParamStrToBuf(struct arg_str *argstr, uint8_t *data, int maxdatalen, int 
     if (!argstr->count)
         return 0;
 
-    uint8_t tmp_buf[256] = {0};
+    uint8_t tmpstr[(512 * 2) + 1] = {0};
     int ibuf = 0;
 
     for (int i = 0; i < argstr->count; i++) {
+
         int len = strlen(argstr->sval[i]);
-        memcpy(&tmp_buf[ibuf], argstr->sval[i], len);
+
+        if (len > ((sizeof(tmpstr) / 2) - ibuf)) {
+            PrintAndLogEx(ERR, "Parameter error: string too long (%i chars), expect MAX %zu chars\n", len + ibuf, (sizeof(tmpstr) / 2));
+            return 2;
+        }
+
+        memcpy(&tmpstr[ibuf], argstr->sval[i], len);
+
         ibuf += len;
     }
-    tmp_buf[ibuf] = 0;
 
-    if (!ibuf)
+    ibuf = MIN(ibuf, (sizeof(tmpstr) / 2));
+    tmpstr[ibuf] = 0;
+
+    if (ibuf == 0)
         return 0;
 
     if (ibuf > maxdatalen) {
-        fflush(stdout);
+        PrintAndLogEx(ERR, "Parameter error: string too long (%i chars), expected MAX %i chars\n", ibuf, maxdatalen);
         return 2;
     }
 
-    memcpy(data, tmp_buf, ibuf);
+    memcpy(data, tmpstr, ibuf + 1);
     *datalen = ibuf;
     return 0;
 }
 
+// hexstr ->  u64,  w optional len input and default value fallback.
+// 0 = failed
+// 1 = OK
+// 3 = optional param - not set
+uint64_t arg_get_u64_hexstr_def(CLIParserContext *ctx, uint8_t paramnum, uint64_t def) {
+    uint64_t rv = 0;
+    uint8_t d[8];
+    int dlen = 0;
+    int res = CLIParamHexToBuf(arg_get_str(ctx, paramnum), d, sizeof(d), &dlen);
+    if (res == 0 && dlen > 0) {
+        for (uint8_t i = 0; i < dlen; i++) {
+            rv <<= 8;
+            rv |= d[i];
+        }
+    } else  {
+        rv = def;
+    }
+    return rv;
+}
+
+// hexstr ->  u64,  w optional len input and default value fallback.
+// 0 = failed
+// 1 = OK
+// 2 = wrong len param, use default
+// 3 = optional param,  if fail, use default.
+int arg_get_u64_hexstr_def_nlen(CLIParserContext *ctx, uint8_t paramnum, uint64_t def, uint64_t *out, uint8_t nlen, bool optional) {
+    int n = 0;
+    uint8_t d[nlen];
+    int res = CLIParamHexToBuf(arg_get_str(ctx, paramnum), d, sizeof(d), &n);
+    if (res == 0 && n == nlen) {
+        uint64_t rv = 0;
+        for (uint8_t i = 0; i < n; i++) {
+            rv <<= 8;
+            rv |= d[i];
+        }
+        *out = rv;
+        return 1;
+    } else if (res == 0 && n) {
+        *out = def;
+        return 2;
+    } else if (res == 0 && n == 0 && optional) {
+        *out = def;
+        return 3;
+    }
+    return 0;
+}
+
+int arg_get_u32_hexstr_def(CLIParserContext *ctx, uint8_t paramnum, uint32_t def, uint32_t *out) {
+    return arg_get_u32_hexstr_def_nlen(ctx, paramnum, def, out, 4, false);
+}
+
+int arg_get_u32_hexstr_def_nlen(CLIParserContext *ctx, uint8_t paramnum, uint32_t def, uint32_t *out, uint8_t nlen, bool optional) {
+    int n = 0;
+    uint8_t d[nlen];
+    int res = CLIParamHexToBuf(arg_get_str(ctx, paramnum), d, sizeof(d), &n);
+    if (res == 0 && n == nlen) {
+        uint32_t rv = 0;
+        for (uint8_t i = 0; i < n; i++) {
+            rv <<= 8;
+            rv |= d[i];
+        }
+        *out = rv;
+        return 1;
+    } else if (res == 0 && n) {
+        *out = def;
+        return 2;
+    } else if (res == 0 && n == 0 && optional) {
+        *out = def;
+        return 3;
+    }
+    return 0;
+}
 

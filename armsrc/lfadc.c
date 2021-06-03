@@ -52,9 +52,12 @@ bool lf_test_periods(size_t expected, size_t count) {
 //////////////////////////////////////////////////////////////////////////////
 // Low frequency (LF) adc passthrough functionality
 //////////////////////////////////////////////////////////////////////////////
-static uint8_t previous_adc_val = 0;
+static uint8_t previous_adc_val = 0; //0xFF;
 static uint8_t adc_avg = 0;
 
+uint8_t get_adc_avg(void) {
+    return adc_avg;
+}
 void lf_sample_mean(void) {
     uint8_t periods = 0;
     uint32_t adc_sum = 0;
@@ -66,19 +69,43 @@ void lf_sample_mean(void) {
     }
     // division by 32
     adc_avg = adc_sum >> 5;
+    previous_adc_val = adc_avg;
 
     if (DBGLEVEL >= DBG_EXTENDED)
         Dbprintf("LF ADC average %u", adc_avg);
 }
 
 static size_t lf_count_edge_periods_ex(size_t max, bool wait, bool detect_gap) {
+
+#define LIMIT_DEV  20
+
+    // timeout limit to 100 000 w/o
+    uint32_t timeout = 100000;
     size_t periods = 0;
-    uint8_t avg_peak = adc_avg + 3, avg_through = adc_avg - 3;
+    uint8_t avg_peak = adc_avg + LIMIT_DEV;
+    uint8_t avg_through = adc_avg - LIMIT_DEV;
 
     while (BUTTON_PRESS() == false) {
+        WDT_HIT();
+
+        timeout--;
+        if (timeout == 0) {
+            return 0;
+        }
+
+        if (AT91C_BASE_SSC->SSC_SR & (AT91C_SSC_TXRDY)) {
+            AT91C_BASE_SSC->SSC_THR = 0x00;
+            continue;
+        }
+
         if (AT91C_BASE_SSC->SSC_SR & (AT91C_SSC_RXRDY)) {
-            volatile uint8_t adc_val = AT91C_BASE_SSC->SSC_RHR;
+
             periods++;
+
+            // reset timeout
+            timeout = 100000;
+
+            volatile uint8_t adc_val = AT91C_BASE_SSC->SSC_RHR;
 
             if (g_logging) logSampleSimple(adc_val);
 
@@ -94,21 +121,28 @@ static size_t lf_count_edge_periods_ex(size_t max, bool wait, bool detect_gap) {
                 } else {
                     // Trigger on a modulation swap by observing an edge change
                     if (rising_edge) {
+
                         if ((previous_adc_val > avg_peak) && (adc_val <= previous_adc_val)) {
                             rising_edge = false;
                             return periods;
                         }
+
                     } else {
+
                         if ((previous_adc_val < avg_through) && (adc_val >= previous_adc_val)) {
                             rising_edge = true;
                             return periods;
                         }
+
                     }
                 }
             }
+
             previous_adc_val = adc_val;
 
-            if (periods >= max) return 0;
+            if (periods >= max) {
+                return 0;
+            }
         }
     }
 
@@ -148,7 +182,7 @@ bool lf_get_reader_modulation(void) {
 }
 
 void lf_wait_periods(size_t periods) {
-                             //       wait  detect gap
+    //       wait  detect gap
     lf_count_edge_periods_ex(periods, true, false);
 }
 
@@ -169,10 +203,10 @@ void lf_init(bool reader, bool simulate) {
         FpgaWriteConfWord(FPGA_MAJOR_MODE_LF_ADC | FPGA_LF_ADC_READER_FIELD);
     } else {
         if (simulate)
-//            FpgaWriteConfWord(FPGA_MAJOR_MODE_LF_EDGE_DETECT);
             FpgaWriteConfWord(FPGA_MAJOR_MODE_LF_ADC);
         else
             // Sniff
+            //FpgaWriteConfWord(FPGA_MAJOR_MODE_LF_ADC);
             FpgaWriteConfWord(FPGA_MAJOR_MODE_LF_EDGE_DETECT  | FPGA_LF_EDGE_DETECT_TOGGLE_MODE);
 
     }
@@ -181,14 +215,14 @@ void lf_init(bool reader, bool simulate) {
     SetAdcMuxFor(GPIO_MUXSEL_LOPKD);
 
     // Now set up the SSC to get the ADC samples that are now streaming at us.
-    FpgaSetupSsc();
+    FpgaSetupSsc(FPGA_MAJOR_MODE_LF_READER);
 
     // When in reader mode, give the field a bit of time to settle.
     // 313T0 = 313 * 8us = 2504us = 2.5ms  Hitag2 tags needs to be fully powered.
-    if (reader) {
-        // 10 ms
-        SpinDelay(10);
-    }
+//    if (reader) {
+    // 10 ms
+    SpinDelay(10);
+//    }
 
     // Steal this pin from the SSP (SPI communication channel with fpga) and use it to control the modulation
     AT91C_BASE_PIOA->PIO_PER = GPIO_SSC_DOUT;
@@ -238,40 +272,40 @@ void lf_finalize(void) {
 }
 
 size_t lf_detect_field_drop(size_t max) {
-/*
-    size_t periods = 0;
-//    int16_t checked = 0;
+    /*
+        size_t periods = 0;
+    //    int16_t checked = 0;
 
-    while (BUTTON_PRESS() == false) {
+        while (BUTTON_PRESS() == false) {
 
-                // // only every 1000th times, in order to save time when collecting samples.
-                // if (checked == 4000) {
-                    // if (data_available()) {
-                        // checked = -1;
-                        // break;
-                    // } else {
-                        // checked = 0;
+                    // // only every 1000th times, in order to save time when collecting samples.
+                    // if (checked == 4000) {
+                        // if (data_available()) {
+                            // checked = -1;
+                            // break;
+                        // } else {
+                            // checked = 0;
+                        // }
                     // }
-                // }
-                // ++checked;
+                    // ++checked;
 
-        WDT_HIT();
+            WDT_HIT();
 
-        if (AT91C_BASE_SSC->SSC_SR & (AT91C_SSC_RXRDY)) {
-            periods++;
-            volatile uint8_t adc_val = AT91C_BASE_SSC->SSC_RHR;
+            if (AT91C_BASE_SSC->SSC_SR & (AT91C_SSC_RXRDY)) {
+                periods++;
+                volatile uint8_t adc_val = AT91C_BASE_SSC->SSC_RHR;
 
-            if (g_logging) logSampleSimple(adc_val);
+                if (g_logging) logSampleSimple(adc_val);
 
-            if (adc_val == 0) {
-                rising_edge = false;
-                return periods;
+                if (adc_val == 0) {
+                    rising_edge = false;
+                    return periods;
+                }
+
+                if (periods == max) return 0;
             }
-
-            if (periods == max) return 0;
         }
-    }
-*/
+    */
     return 0;
 }
 

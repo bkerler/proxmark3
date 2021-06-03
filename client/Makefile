@@ -4,9 +4,6 @@
 # the license.
 #-----------------------------------------------------------------------------
 
-# Must be called before any Makefile include
-ROOT_DIR:=$(dir $(realpath $(lastword $(MAKEFILE_LIST))))
-
 include ../Makefile.defs
 
 INSTALLBIN = proxmark3
@@ -16,9 +13,11 @@ VPATH =  ../common src
 vpath %.dic dictionaries
 OBJDIR = obj
 
-ifeq ($(platform),Darwin)
-    # cf brew info qt: qt not symlinked anymore
-    PKG_CONFIG_ENV := PKG_CONFIG_PATH=/usr/local/opt/qt/lib/pkgconfig
+ifeq ($(USE_BREW),1)
+	INCLUDES += -I$(BREW_PREFIX)/include
+	LDLIBS += -L$(BREW_PREFIX)/lib
+	PKG_CONFIG_ENV := PKG_CONFIG_PATH=$(BREW_PREFIX)/opt/qt/lib/pkgconfig
+	PKG_CONFIG_ENV := PKG_CONFIG_PATH=$(BREW_PREFIX)/opt/qt5/lib/pkgconfig
 endif
 
 ###################
@@ -29,26 +28,31 @@ endif
 AMIIBOLIBPATH = ./deps/amiitool
 AMIIBOLIBINC = -I$(AMIIBOLIBPATH)
 AMIIBOLIB = $(AMIIBOLIBPATH)/libamiibo.a
+AMIIBOLIBLD =
 
 ## Cliparser / Argtable3
 CLIPARSERLIBPATH = ./deps/cliparser
 CLIPARSERLIBINC = -I$(CLIPARSERLIBPATH)
 CLIPARSERLIB = $(CLIPARSERLIBPATH)/libcliparser.a
+CLIPARSERLIBLD =
 
 ## Hardnested
 HARDNESTEDLIBPATH = ./deps/hardnested
 HARDNESTEDLIBINC = -I$(HARDNESTEDLIBPATH)
 HARDNESTEDLIB = $(HARDNESTEDLIBPATH)/libhardnested.a
+HARDNESTEDLIBLD =
 
 ## Jansson
 JANSSONLIBPATH = ./deps/jansson
 JANSSONLIBINC = -I$(JANSSONLIBPATH)
 JANSSONLIB = $(JANSSONLIBPATH)/libjansson.a
+JANSSONLIBLD =
 
 ## Lua
 LUALIBPATH = ./deps/liblua
 LUALIBINC = -I$(LUALIBPATH)
 LUALIB = $(LUALIBPATH)/liblua.a
+LUALIBLD =
 LUAPLATFORM = generic
 ifneq (,$(findstring MINGW,$(platform)))
     LUAPLATFORM = mingw
@@ -56,7 +60,7 @@ else
     ifeq ($(platform),Darwin)
         LUAPLATFORM = macosx
     else
-        LUALIB +=  -ldl
+        LUALIBLD +=  -ldl
         LUAPLATFORM = linux
     endif
 endif
@@ -65,16 +69,19 @@ endif
 REVENGLIBPATH = ./deps/reveng
 REVENGLIBINC = -I$(REVENGLIBPATH)
 REVENGLIB = $(REVENGLIBPATH)/libreveng.a
+REVENGLIBLD =
 
 ## Tinycbor
 TINYCBORLIBPATH = ./deps/tinycbor
 TINYCBORLIBINC = -I$(TINYCBORLIBPATH)
 TINYCBORLIB = $(TINYCBORLIBPATH)/tinycbor.a
+TINYCBORLIBLD =
 
 ## Whereami
 WHEREAMILIBPATH = ./deps/whereami
 WHEREAMILIBINC = -I$(WHEREAMILIBPATH)
 WHEREAMILIB = $(WHEREAMILIBPATH)/libwhereami.a
+WHEREAMILIBLD =
 
 ##########################
 # common local libraries #
@@ -84,6 +91,7 @@ WHEREAMILIB = $(WHEREAMILIBPATH)/libwhereami.a
 MBEDTLSLIBPATH = ../common/mbedtls
 MBEDTLSLIBINC = -I$(MBEDTLSLIBPATH)
 MBEDTLSLIB = $(OBJDIR)/libmbedtls.a
+MBEDTLSLIBCLIENTRELPATH = ../../client
 
 ########################################################
 # optional system libraries to replace local libraries #
@@ -91,69 +99,82 @@ MBEDTLSLIB = $(OBJDIR)/libmbedtls.a
 
 ## Amiibo
 # not distributed as system library
-LDLIBS += $(AMIIBOLIB)
+STATICLIBS += $(AMIIBOLIB)
+LDLIBS += $(AMIIBOLIBLD)
 INCLUDES += $(AMIIBOLIBINC)
 
 ## Cliparser / Argtable3
 # not distributed as system library
-LDLIBS += $(CLIPARSERLIB)
+STATICLIBS += $(CLIPARSERLIB)
+LDLIBS += $(CLIPARSERLIBLD)
 INCLUDES += $(CLIPARSERLIBINC)
 
 ## Hardnested
 # not distributed as system library
-LDLIBS += $(HARDNESTEDLIB)
+STATICLIBS += $(HARDNESTEDLIB)
+LDLIBS +=$(HARDNESTEDLIBLD)
 INCLUDES += $(HARDNESTEDLIBINC)
-
-## Jansson
-ifneq ($(SKIPJANSSONSYSTEM),1)
-    JANSSONINCLUDES = $(shell $(PKG_CONFIG_ENV) pkg-config --cflags jansson 2>/dev/null)
-    JANSSONLDLIBS = $(shell $(PKG_CONFIG_ENV) pkg-config --libs jansson 2>/dev/null)
-    ifneq ($(JANSSONLDLIBS),)
-        JANSSONLIB = $(JANSSONLDLIBS)
-        JANSSONLIBINC = $(JANSSONINCLUDES)
-        JANSSON_FOUND = 1
-    endif
-endif
-LDLIBS += $(JANSSONLIB)
-INCLUDES += $(JANSSONLIBINC)
 
 ## Lua
 ifneq ($(SKIPLUASYSTEM),1)
     LUAINCLUDES = $(shell $(PKG_CONFIG_ENV) pkg-config --cflags lua5.2 2>/dev/null)
     LUALDLIBS = $(shell $(PKG_CONFIG_ENV) pkg-config --libs lua5.2 2>/dev/null)
     ifneq ($(LUALDLIBS),)
-        LUALIB = $(LUALDLIBS)
+        LUALIB =
+        LUALIBLD = $(LUALDLIBS)
         LUALIBINC = $(LUAINCLUDES)
         LUA_FOUND = 1
     endif
 endif
-LDLIBS += $(LUALIB)
+STATICLIBS += $(LUALIB)
+LDLIBS += $(LUALIBLD)
 INCLUDES += $(LUALIBINC)
+
+## Jansson
+# Jansson section needs to be after Lua to avoid interferences on macOS if a locally incompatible Lua was available, see PR 1155
+ifneq ($(SKIPJANSSONSYSTEM),1)
+    JANSSONINCLUDES = $(shell $(PKG_CONFIG_ENV) pkg-config --cflags jansson 2>/dev/null)
+    JANSSONLDLIBS = $(shell $(PKG_CONFIG_ENV) pkg-config --libs jansson 2>/dev/null)
+    ifneq ($(JANSSONLDLIBS),)
+        JANSSONLIB =
+        JANSSONLIBLD = $(JANSSONLDLIBS)
+        JANSSONLIBINC = $(JANSSONINCLUDES)
+        JANSSON_FOUND = 1
+    endif
+endif
+STATICLIBS += $(JANSSONLIB)
+LDLIBS += $(JANSSONLIBLD)
+INCLUDES += $(JANSSONLIBINC)
 
 ## mbed TLS
 # system library cannot be used because it is compiled by default without CMAC support
-LDLIBS +=$(MBEDTLSLIB)
+STATICLIBS += $(MBEDTLSLIB)
+LDLIBS += $(MBEDTLSLIBLD)
 INCLUDES += $(MBEDTLSLIBINC)
 
 ## Reveng
 # not distributed as system library
-LDLIBS += $(REVENGLIB)
+STATICLIBS += $(REVENGLIB)
+LDLIBS += $(REVENGLIBLD)
 INCLUDES += $(REVENGLIBINC)
 
 ## Tinycbor
 # not distributed as system library
-LDLIBS += $(TINYCBORLIB)
+STATICLIBS += $(TINYCBORLIB)
+LDLIBS += $(TINYCBORLIBLD)
 INCLUDES += $(TINYCBORLIBINC)
 
 ## Whereami
 ifneq ($(SKIPWHEREAMISYSTEM),1)
     ifneq (,$(wildcard /usr/include/whereami.h))
-        WHEREAMILIB = -lwhereami
+        WHEREAMILIB =
+        WHEREAMILIBLD = -lwhereami
         WHEREAMILIBINC =
         WHEREAMI_FOUND = 1
     endif
 endif
-LDLIBS += $(WHEREAMILIB)
+STATICLIBS += $(WHEREAMILIB)
+LDLIBS += $(WHEREAMILIBLD)
 INCLUDES += $(WHEREAMILIBINC)
 
 ####################
@@ -176,12 +197,12 @@ ifneq ($(SKIPBT),1)
     BTINCLUDES = $(shell $(PKG_CONFIG_ENV) pkg-config --cflags bluez 2>/dev/null)
     BTLDLIBS = $(shell $(PKG_CONFIG_ENV) pkg-config --libs bluez 2>/dev/null)
     ifneq ($(BTLDLIBS),)
-        BTLIB = $(BTLDLIBS)
+        BTLIBLD = $(BTLDLIBS)
         BTLIBINC = $(BTINCLUDES)
         BT_FOUND = 1
     endif
 endif
-LDLIBS += $(BTLIB)
+LDLIBS += $(BTLIBLD)
 INCLUDES += $(BTLIBINC)
 
 ## Math
@@ -198,7 +219,7 @@ ifneq ($(SKIPPYTHON),1)
     PYTHONINCLUDES = $(shell $(PKG_CONFIG_ENV) pkg-config --cflags python3 2>/dev/null)
     PYTHONLDLIBS = $(shell $(PKG_CONFIG_ENV) pkg-config --libs python3 2>/dev/null)
     ifneq ($(PYTHONLDLIBS),)
-        PYTHONLIB = $(PYTHONLDLIBS)
+        PYTHONLIBLD = $(PYTHONLDLIBS)
         PYTHONLIBINC = $(PYTHONINCLUDES)
         PYTHON_FOUND = 1
     else
@@ -206,13 +227,13 @@ ifneq ($(SKIPPYTHON),1)
         PYTHONINCLUDES = $(shell $(PKG_CONFIG_ENV) pkg-config --cflags python3-embed 2>/dev/null)
         PYTHONLDLIBS = $(shell $(PKG_CONFIG_ENV) pkg-config --libs python3-embed 2>/dev/null)
         ifneq ($(PYTHONLDLIBS),)
-            PYTHONLIB = $(PYTHONLDLIBS)
+            PYTHONLIBLD = $(PYTHONLDLIBS)
             PYTHONLIBINC = $(PYTHONINCLUDES)
             PYTHON_FOUND = 1
         endif
     endif
 endif
-LDLIBS += $(PYTHONLIB)
+LDLIBS += $(PYTHONLIBLD)
 INCLUDES += $(PYTHONLIBINC)
 
 ## QT5 (or QT4 fallback) (optional)
@@ -257,19 +278,32 @@ CXXINCLUDES += $(QTINCLUDES)
 
 ## Readline
 ifneq ($(SKIPREADLINE),1)
-    ifeq ($(platform),Darwin)
-        LDLIBS += -L/usr/local/opt/readline/lib
-        INCLUDES += -I/usr/local/opt/readline/include
+    ifeq ($(USE_BREW),1)
+        LDLIBS += -L$(BREW_PREFIX)/opt/readline/lib
+        INCLUDES += -I$(BREW_PREFIX)/opt/readline/include
     endif
     LDLIBS += -lreadline
     READLINE_FOUND = 1
+endif
+
+########
+# SWIG #
+########
+
+ifneq ("$(wildcard src/pm3_luawrap.c)","")
+    SWIG_LUA_FOUND = 1
+endif
+ifeq ($(PYTHON_FOUND),1)
+    ifneq ("$(wildcard src/pm3_pywrap.c)","")
+        SWIG_PYTHON_FOUND = 1
+    endif
 endif
 
 #######################################################################################################
 CFLAGS ?= $(DEFCFLAGS)
 # We cannot just use CFLAGS+=... because it has impact on sub-makes if CFLAGS is defined in env:
 PM3CFLAGS = $(CFLAGS)
-PM3CFLAGS += -I./src -I../include -I../common -I../common_fpga $(INCLUDES)
+PM3CFLAGS += -I./src -I./include -I../include -I../common -I../common_fpga $(INCLUDES)
 # WIP Testing
 #PM3CFLAGS += -std=c11 -pedantic
 
@@ -295,10 +329,16 @@ ifeq ($(PYTHON_FOUND),1)
     PM3CFLAGS += -DHAVE_PYTHON
 endif
 
+ifeq ($(SWIG_LUA_FOUND),1)
+    PM3CFLAGS += -DHAVE_LUA_SWIG
+endif
+ifeq ($(SWIG_PYTHON_FOUND),1)
+    PM3CFLAGS += -DHAVE_PYTHON_SWIG
+endif
 
 CXXFLAGS ?= -Wall -Werror -O3
 PM3CXXFLAGS = $(CXXFLAGS)
-PM3CXXFLAGS += -I../include
+PM3CXXFLAGS += -I../include -I./include
 
 ifeq ($(QT_FOUND),1)
     PM3CFLAGS += -DHAVE_GUI
@@ -309,6 +349,7 @@ ifeq ($(QT_FOUND),1)
     endif
 endif
 
+LDFLAGS ?= $(DEFLDFLAGS)
 PM3LDFLAGS = $(LDFLAGS)
 ifeq ($(platform),Darwin)
     PM3LDFLAGS += -framework Foundation -framework AppKit
@@ -326,9 +367,9 @@ ifeq ($(SKIPQT),1)
 else
     ifeq ($(QT_FOUND),1)
         ifeq ($(QT5_FOUND),1)
-            $(info GUI support:       QT5 found, enabled)
+            $(info GUI support:       QT5 found, enabled ($(shell QT_SELECT=5 qmake -v 2>/dev/null|grep -o 'Qt version.*')))
         else
-            $(info GUI support:       QT4 found, enabled)
+            $(info GUI support:       QT4 found, enabled ($(shell QT_SELECT=4 qmake -v 2>/dev/null|grep -o 'Qt version.*')))
         endif
     else
         $(info GUI support:       QT not found, disabled)
@@ -393,6 +434,13 @@ else
     endif
 endif
 
+ifeq ($(SWIG_LUA_FOUND),1)
+        $(info Lua SWIG:          wrapper found)
+endif
+ifeq ($(SWIG_PYTHON_FOUND),1)
+        $(info Python SWIG:       wrapper found)
+endif
+
 $(info compiler version:  $(shell $(CC) --version|head -n 1))
 $(info ===================================================================)
 
@@ -409,7 +457,8 @@ POSTCOMPILE = $(MV) -f $(OBJDIR)/$*.Td $(OBJDIR)/$*.d && $(TOUCH) $@
 # enumerations #
 ################
 
-SRCS =  aidsearch.c \
+SRCS =  aiddesfire.c \
+		aidsearch.c \
 		cmdanalyse.c \
 		cmdcrc.c \
 		cmddata.c \
@@ -421,10 +470,12 @@ SRCS =  aidsearch.c \
 		cmdhf15.c \
 		cmdhfcryptorf.c \
 		cmdhfepa.c \
+		cmdhfemrtd.c \
 		cmdhffelica.c \
 		cmdhffido.c \
 		cmdhficlass.c \
 		cmdhflegic.c \
+		cmdhfjooki.c \
 		cmdhflist.c \
 		cmdhflto.c \
 		cmdhfmf.c \
@@ -432,19 +483,28 @@ SRCS =  aidsearch.c \
 		cmdhfmfhard.c \
 		cmdhfmfu.c \
 		cmdhfmfp.c \
+		cmdhfseos.c \
+		cmdhfst.c \
+		cmdhfst25ta.c \
 		cmdhfthinfilm.c \
 		cmdhftopaz.c \
+		cmdhfwaveshare.c \
 		cmdhw.c \
 		cmdlf.c \
 		cmdlfawid.c \
 		cmdlfcotag.c \
-		cmdlfem4x.c \
+		cmdlfdestron.c \
+		cmdlfem.c \
+		cmdlfem410x.c \
+		cmdlfem4x05.c \
 		cmdlfem4x50.c \
-		cmdlffdx.c \
+		cmdlfem4x70.c \
+		cmdlffdxb.c \
 		cmdlfguard.c \
 		cmdlfgallagher.c \
 		cmdlfhid.c \
 		cmdlfhitag.c \
+		cmdlfidteck.c \
 		cmdlfindala.c \
 		cmdlfio.c \
 		cmdlfjablotron.c \
@@ -464,6 +524,7 @@ SRCS =  aidsearch.c \
 		cmdlfviking.c \
 		cmdlfvisa2000.c \
 		cmdmain.c \
+		cmdnfc.c \
 		cmdparser.c \
 		cmdscript.c \
 		cmdsmartcard.c \
@@ -479,7 +540,6 @@ SRCS =  aidsearch.c \
 		emv/crypto.c\
 		emv/crypto_polarssl.c\
 		emv/dol.c \
-		emv/dump.c \
 		emv/emv_pk.c\
 		emv/emv_pki.c\
 		emv/emv_pki_priv.c\
@@ -512,7 +572,8 @@ SRCS =  aidsearch.c \
 		mifare/mifare4.c \
 		mifare/mifaredefault.c \
 		mifare/mifarehost.c \
-		mifare/ndef.c \
+		nfc/ndef.c \
+		pm3.c \
 		pm3_binlib.c \
 		pm3_bitlib.c \
 		preferences.c \
@@ -525,7 +586,7 @@ SRCS =  aidsearch.c \
 		tea.c \
 		ui.c \
 		util.c \
-		version.c \
+		version_pm3.c \
 		wiegand_formats.c \
 		wiegand_formatutils.c
 
@@ -545,6 +606,16 @@ SRCS += bucketsort.c \
 		parity.c \
 		util_posix.c
 
+# swig
+
+SWIGSRCS =
+ifeq ($(SWIG_LUA_FOUND),1)
+    SWIGSRCS += pm3_luawrap.c
+endif
+ifeq ($(SWIG_PYTHON_FOUND),1)
+    SWIGSRCS += pm3_pywrap.c
+endif
+
 # gui
 ifeq ($(QT_FOUND),1)
     CXXSRCS = proxgui.cpp proxguiqt.cpp proxguiqt.moc.cpp
@@ -558,12 +629,13 @@ ifeq ($(platform),Darwin)
 endif
 
 OBJS = $(SRCS:%.c=$(OBJDIR)/%.o)
+OBJS += $(SWIGSRCS:%.c=$(OBJDIR)/%.o)
 OBJS += $(CXXSRCS:%.cpp=$(OBJDIR)/%.o)
 OBJS += $(OBJCSRCS:%.m=$(OBJDIR)/%.o)
 
 BINS = proxmark3
 
-CLEAN = $(BINS) src/version.c src/*.moc.cpp src/ui/ui_overlays.h lualibs/pm3_cmd.lua lualibs/mfc_default_keys.lua
+CLEAN = $(BINS) src/version_pm3.c src/*.moc.cpp src/ui/ui_overlays.h lualibs/pm3_cmd.lua lualibs/mfc_default_keys.lua
 # transition: cleaning also old path stuff
 CLEAN += flasher *.moc.cpp ui/ui_overlays.h
 
@@ -577,9 +649,9 @@ all: $(BINS)
 all-static: LDLIBS:=-static $(LDLIBS)
 all-static: $(BINS)
 
-proxmark3: $(OBJS) amiibo cliparser jansson hardnested lua mbedtls reveng tinycbor whereami lualibs/pm3_cmd.lua lualibs/mfc_default_keys.lua
+proxmark3: $(OBJS) $(STATICLIBS) lualibs/pm3_cmd.lua lualibs/mfc_default_keys.lua
 	$(info [=] LD $@)
-	$(Q)$(LD) $(PM3LDFLAGS) $(OBJS) $(LDLIBS) -o $@
+	$(Q)$(LD) $(PM3LDFLAGS) $(OBJS) $(STATICLIBS) $(LDLIBS) -o $@
 
 src/proxgui.cpp: src/ui/ui_overlays.h
 
@@ -622,6 +694,7 @@ endif
 ifneq (,$(INSTALLSHARE))
 	    $(Q)$(MKDIR) $(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLSHARERELPATH)
 	    $(Q)$(CP) $(INSTALLSHARE) $(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLSHARERELPATH)
+	    $(Q)$(CP) src/pm3.py $(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLSHARERELPATH)/pyscripts
 endif
 	@true
 
@@ -642,62 +715,81 @@ tarbin: $(BINS)
 ###########################
 # local libraries targets #
 ###########################
-
-amiibo:
+$(AMIIBOLIB): .FORCE
 	$(info [*] MAKE $@)
 	$(Q)$(MAKE) --no-print-directory -C $(AMIIBOLIBPATH) all
 
-cliparser:
+$(CLIPARSERLIB): .FORCE
 	$(info [*] MAKE $@)
 	$(Q)$(MAKE) --no-print-directory -C $(CLIPARSERLIBPATH) all
 
-hardnested:
+$(HARDNESTEDLIB): .FORCE
 	$(info [*] MAKE $@)
 	$(Q)$(MAKE) --no-print-directory -C $(HARDNESTEDLIBPATH) all
 
-jansson:
+$(JANSSONLIB): .FORCE
 ifneq ($(JANSSON_FOUND),1)
 	$(info [*] MAKE $@)
 	$(Q)$(MAKE) --no-print-directory -C $(JANSSONLIBPATH) all
 endif
 
-lua:
+$(LUALIB): .FORCE
 ifneq ($(LUA_FOUND),1)
 	$(info [*] MAKE $@ for $(LUAPLATFORM))
 	$(Q)$(MAKE) --no-print-directory -C $(LUALIBPATH) $(LUAPLATFORM)
 endif
 
-mbedtls:
+$(MBEDTLSLIB): .FORCE
 	$(info [*] MAKE $@)
-	$(Q)$(MAKE) --no-print-directory -C $(MBEDTLSLIBPATH) OBJDIR=$(ROOT_DIR)$(OBJDIR) BINDIR=$(ROOT_DIR)$(OBJDIR) all
+	$(Q)$(MAKE) --no-print-directory -C $(MBEDTLSLIBPATH) OBJDIR=$(MBEDTLSLIBCLIENTRELPATH)/$(OBJDIR) BINDIR=$(MBEDTLSLIBCLIENTRELPATH)/$(OBJDIR) all
 
-reveng:
+$(REVENGLIB): .FORCE
 	$(info [*] MAKE $@)
 	$(Q)$(MAKE) --no-print-directory -C $(REVENGLIBPATH) all
 
-tinycbor:
+$(TINYCBORLIB): .FORCE
 	$(info [*] MAKE $@)
 	$(Q)$(MAKE) --no-print-directory -C $(TINYCBORLIBPATH) all
 
-whereami:
+$(WHEREAMILIB): .FORCE
 ifneq ($(WHEREAMI_FOUND),1)
 	$(info [*] MAKE $@)
 	$(Q)$(MAKE) --no-print-directory -C $(WHEREAMILIBPATH) all
 endif
 
 ########
+# SWIG #
+########
+
+src/pm3_luawrap.c: pm3.i
+	$(info [=] GEN $@)
+	$(Q)$(SWIG) -lua -o $@ $<
+
+src/pm3_pywrap.c: pm3.i
+	$(info [=] GEN $@)
+	$(Q)$(SWIG) -python -o $@ $<
+
+########
 # misc #
 ########
 
-.PHONY: all clean install uninstall tarbin amiibo cliparser hardnested jansson lua mbedtls reveng tinycbor whereami
+.PHONY: all clean install uninstall tarbin .FORCE
 
-# version.c should be remade on every compilation
-src/version.c: default_version.c
+# version_pm3.c should be remade on every compilation
+src/version_pm3.c: default_version_pm3.c
 	$(info [=] GEN $@)
 	$(Q)$(SH) ../tools/mkversion.sh > $@ || $(PERL) ../tools/mkversion.pl > $@ || $(CP) $< $@
 
 # easy printing of MAKE VARIABLES
 print-%: ; @echo $* = $($*)
+
+# SWIG files emit a number of warnings, we've to ignore them
+%wrap.o: %wrap.c
+$(OBJDIR)/%wrap.o : %wrap.c $(OBJDIR)/%.d
+	$(info [-] CC $<)
+	$(Q)$(MKDIR) $(dir $@)
+	$(Q)$(CC) $(DEPFLAGS) $(PM3CFLAGS) -Wno-missing-prototypes -Wno-missing-declarations -Wno-missing-field-initializers -c -o $@ $<
+	$(Q)$(POSTCOMPILE)
 
 %.o: %.c
 $(OBJDIR)/%.o : %.c $(OBJDIR)/%.d
@@ -721,6 +813,7 @@ $(OBJDIR)/%.o : %.m $(OBJDIR)/%.d
 	$(Q)$(POSTCOMPILE)
 
 DEPENDENCY_FILES = $(patsubst %.c, $(OBJDIR)/%.d, $(SRCS)) \
+                   $(patsubst %wrap.c, $(OBJDIR)/%.d, $(SWIGSRCS)) \
                    $(patsubst %.cpp, $(OBJDIR)/%.d, $(CXXSRCS)) \
                    $(patsubst %.m, $(OBJDIR)/%.d, $(OBJCSRCS))
 

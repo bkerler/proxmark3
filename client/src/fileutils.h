@@ -64,6 +64,10 @@ typedef enum {
     jsfMfPlusKeys,
     jsfCustom,
     jsfMfDesfireKeys,
+    jsfEM4x05,
+    jsfEM4x69,
+    jsfEM4x50,
+    jsfFido,
 } JSONFileType;
 
 typedef enum {
@@ -75,7 +79,7 @@ typedef enum {
 
 int fileExists(const char *filename);
 //bool create_path(const char *dirname);
-//bool setDefaultPath (savePaths_t pathIndex,const char *Path);  // set a path in the path list session.defaultPaths
+bool setDefaultPath(savePaths_t pathIndex, const char *Path);  // set a path in the path list session.defaultPaths
 
 char *newfilenamemcopy(const char *preferredName, const char *suffix);
 
@@ -118,7 +122,8 @@ int saveFileEML(const char *preferredName, uint8_t *data, size_t datalen, size_t
  */
 int saveFileJSON(const char *preferredName, JSONFileType ftype, uint8_t *data, size_t datalen, void (*callback)(json_t *));
 int saveFileJSONex(const char *preferredName, JSONFileType ftype, uint8_t *data, size_t datalen, bool verbose, void (*callback)(json_t *));
-
+int saveFileJSONroot(const char *preferredName, void *root, size_t flags, bool verbose);
+int saveFileJSONrootEx(const char *preferredName, void *root, size_t flags, bool verbose, bool overwrite);
 /** STUB
  * @brief Utility function to save WAVE data to a file. This method takes a preferred name, but if that
  * file already exists, it tries with another name until it finds something suitable.
@@ -203,7 +208,7 @@ int loadFileEML_safe(const char *preferredName, void **pdata, size_t *datalen);
 */
 int loadFileJSON(const char *preferredName, void *data, size_t maxdatalen, size_t *datalen, void (*callback)(json_t *));
 int loadFileJSONex(const char *preferredName, void *data, size_t maxdatalen, size_t *datalen, bool verbose, void (*callback)(json_t *));
-
+int loadFileJSONroot(const char *preferredName, void **proot, bool verbose);
 
 /**
  * @brief  Utility function to load data from a DICTIONARY textfile. This method takes a preferred name.
@@ -269,4 +274,11 @@ mfu_df_e detect_mfu_dump_format(uint8_t **dump, size_t *dumplen, bool verbose);
 int searchAndList(const char *pm3dir, const char *ext);
 int searchFile(char **foundpath, const char *pm3dir, const char *searchname, const char *suffix, bool silent);
 
+
+/**
+ * @brief detects if file is of a supported filetype based on extension
+ * @param filename
+ * @return
+ */
+DumpFileType_t getfiletype(const char *filename);
 #endif // FILEUTILS_H

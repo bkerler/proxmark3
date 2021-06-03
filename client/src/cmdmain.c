@@ -25,6 +25,7 @@
 #include "cmddata.h"
 #include "cmdhw.h"
 #include "cmdlf.h"
+#include "cmdnfc.h"
 #include "cmdtrace.h"
 #include "cmdscript.h"
 #include "cmdcrc.h"
@@ -38,46 +39,9 @@
 #include "util_posix.h"
 #include "commonutil.h"   // ARRAYLEN
 #include "preferences.h"
+#include "cliparser.h"
 
 static int CmdHelp(const char *Cmd);
-
-static int usage_hints(void) {
-    PrintAndLogEx(NORMAL, "Turn on/off hints");
-    PrintAndLogEx(NORMAL, "");
-    PrintAndLogEx(NORMAL, "Usage:  hints [h] <0|1>");
-    PrintAndLogEx(NORMAL, "Options:");
-    PrintAndLogEx(NORMAL, "       h          This help");
-    PrintAndLogEx(NORMAL, "       <0|1>      off or on");
-    PrintAndLogEx(NORMAL, "");
-    PrintAndLogEx(NORMAL, "Examples:");
-    PrintAndLogEx(NORMAL, _YELLOW_("       hints 1"));
-    return PM3_SUCCESS;
-}
-
-static int usage_msleep(void) {
-    PrintAndLogEx(NORMAL, "Sleep for given amount of milliseconds");
-    PrintAndLogEx(NORMAL, "");
-    PrintAndLogEx(NORMAL, "Usage:  msleep <ms>");
-    PrintAndLogEx(NORMAL, "Options:");
-    PrintAndLogEx(NORMAL, "       h          This help");
-    PrintAndLogEx(NORMAL, "       <ms>       time in milliseconds");
-    PrintAndLogEx(NORMAL, "");
-    PrintAndLogEx(NORMAL, "Examples:");
-    PrintAndLogEx(NORMAL, _YELLOW_("       msleep 100"));
-    return PM3_SUCCESS;
-}
-
-static int usage_auto(void) {
-    PrintAndLogEx(NORMAL, "Run LF SEARCH / HF SEARCH / DATA PLOT / DATA SAVE ");
-    PrintAndLogEx(NORMAL, "");
-    PrintAndLogEx(NORMAL, "Usage:  auto <ms>");
-    PrintAndLogEx(NORMAL, "Options:");
-    PrintAndLogEx(NORMAL, "       h          This help");
-    PrintAndLogEx(NORMAL, "");
-    PrintAndLogEx(NORMAL, "Examples:");
-    PrintAndLogEx(NORMAL, _YELLOW_("       auto"));
-    return PM3_SUCCESS;
-}
 
 static void AppendDate(char *s, size_t slen, const char *fmt) {
     struct tm *ct, tm_buf;
@@ -158,61 +122,116 @@ static int lf_search_plus(const char *Cmd) {
 }
 
 static int CmdAuto(const char *Cmd) {
-    char ctmp = tolower(param_getchar(Cmd, 0));
-    if (ctmp == 'h') return usage_auto();
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "auto",
+                  "Run LF SEARCH / HF SEARCH / DATA PLOT / DATA SAVE",
+                  "auto"
+                 );
 
+    void *argtable[] = {
+        arg_param_begin,
+        arg_lit0("c", NULL, "Continue searching even after a first hit"),
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, true);
+    bool exit_first = (arg_get_lit(ctx, 1) == false);
+    CLIParserFree(ctx);
+
+    PrintAndLogEx(INFO, "lf search");
     int ret = CmdLFfind("");
-    if (ret == PM3_SUCCESS)
+    if (ret == PM3_SUCCESS && exit_first)
         return ret;
 
+    PrintAndLogEx(INFO, "hf search");
     ret = CmdHFSearch("");
-    if (ret == PM3_SUCCESS)
+    if (ret == PM3_SUCCESS && exit_first)
         return ret;
 
+    PrintAndLogEx(INFO, "lf search - unknown");
     ret = lf_search_plus("");
-    if (ret == PM3_SUCCESS)
+    if (ret == PM3_SUCCESS && exit_first)
         return ret;
 
-    PrintAndLogEx(INFO, "Failed both LF / HF SEARCH,");
+    if (ret != PM3_SUCCESS)
+        PrintAndLogEx(INFO, "Failed both LF / HF SEARCH,");
+
     PrintAndLogEx(INFO, "Trying " _YELLOW_("`lf read`") " and save a trace for you");
 
     CmdPlot("");
     lf_read(false, 40000);
     char *fname = calloc(100, sizeof(uint8_t));
-    AppendDate(fname, 100, "f lf_unknown_%Y-%m-%d_%H:%M");
+    AppendDate(fname, 100, "-f lf_unknown_%Y-%m-%d_%H:%M");
     CmdSave(fname);
     free(fname);
     return PM3_SUCCESS;
 }
 
 int CmdRem(const char *Cmd) {
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "rem",
+                  "Add a text line in log file",
+                  "rem my message    -> adds a timestamp with `my message`"
+                 );
+
+    void *argtable[] = {
+        arg_param_begin,
+        arg_strx1(NULL, NULL, NULL, "message line you want inserted"),
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, false);
+
+    struct arg_str *foo = arg_get_str(ctx, 1);
+    size_t count = 0;
+    size_t len = 0;
+    do {
+        count += strlen(foo->sval[len]);
+    } while (len++ < (foo->count - 1));
+
+    char s[count + foo->count];
+    memset(s, 0, sizeof(s));
+
+    len = 0;
+    do {
+        snprintf(s + strlen(s), sizeof(s) - strlen(s), "%s ", foo->sval[len]);
+    } while (len++ < (foo->count - 1));
+
+    CLIParserFree(ctx);
     char buf[22] = {0};
     AppendDate(buf, sizeof(buf), NULL);
-    PrintAndLogEx(NORMAL, "%s remark: %s", buf, Cmd);
+    PrintAndLogEx(SUCCESS, "%s remark: %s", buf, s);
     return PM3_SUCCESS;
 }
 
 static int CmdHints(const char *Cmd) {
-    uint32_t ms = 0;
-    char ctmp = tolower(param_getchar(Cmd, 0));
-    if (ctmp == 'h') return usage_hints();
 
-    if (strlen(Cmd) > 1) {
-        str_lower((char *)Cmd);
-        if (str_startswith(Cmd, "of")) {
-            session.show_hints = false;
-        } else {
-            session.show_hints = true;
-        }
-    } else if (strlen(Cmd) == 1) {
-        if (param_getchar(Cmd, 0) != 0x00) {
-            ms = param_get32ex(Cmd, 0, 0, 10);
-            if (ms == 0) {
-                session.show_hints = false;
-            } else {
-                session.show_hints = true;
-            }
-        }
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "hints",
+                  "Turn on/off hints",
+                  "hints --on\n"
+                  "hints -1\n"
+                 );
+
+    void *argtable[] = {
+        arg_param_begin,
+        arg_lit0("1", "on", "turn on hints"),
+        arg_lit0("0", "off", "turn off hints"),
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, true);
+
+    bool turn_on = arg_get_lit(ctx, 1);
+    bool turn_off = arg_get_lit(ctx, 2);
+    CLIParserFree(ctx);
+
+    if (turn_on && turn_off) {
+        PrintAndLogEx(ERR, "you can't turn off and on at the same time");
+        return PM3_EINVARG;
+    }
+
+    if (turn_off) {
+        session.show_hints = false;
+    } else if (turn_on) {
+        session.show_hints = true;
     }
 
     PrintAndLogEx(INFO, "Hints are %s", (session.show_hints) ? "ON" : "OFF");
@@ -220,20 +239,42 @@ static int CmdHints(const char *Cmd) {
 }
 
 static int CmdMsleep(const char *Cmd) {
-    uint32_t ms = 0;
-    char ctmp = tolower(param_getchar(Cmd, 0));
-    if (strlen(Cmd) < 1 || ctmp == 'h') return usage_msleep();
-    if (param_getchar(Cmd, 0) != 0x00) {
-        ms = param_get32ex(Cmd, 0, 0, 10);
-        if (ms == 0)
-            return usage_msleep();
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "msleep",
+                  "Sleep for given amount of milliseconds",
+                  "msleep 100"
+                 );
+
+    void *argtable[] = {
+        arg_param_begin,
+        arg_int0("t", "ms", "<ms>", "time in milliseconds"),
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, false);
+    uint32_t ms = arg_get_u32_def(ctx, 1, 0);
+    CLIParserFree(ctx);
+
+    if (ms == 0) {
+        PrintAndLogEx(ERR, "Specified invalid input. Can't be zero");
+        return PM3_EINVARG;
     }
+
     msleep(ms);
     return PM3_SUCCESS;
 }
 
 static int CmdQuit(const char *Cmd) {
-    (void)Cmd; // Cmd is not used so far
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "quit",
+                  "Quit the Proxmark3 client terminal",
+                  "quit"
+                 );
+    void *argtable[] = {
+        arg_param_begin,
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, true);
+    CLIParserFree(ctx);
     return PM3_EFATAL;
 }
 
@@ -247,32 +288,49 @@ static int CmdPref(const char *Cmd) {
     return PM3_SUCCESS;
 }
 
+static int CmdClear(const char *Cmd) {
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "clear",
+                  "Clear the Proxmark3 client terminal screen",
+                  "clear"
+                 );
+    void *argtable[] = {
+        arg_param_begin,
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, true);
+    CLIParserFree(ctx);
+    PrintAndLogEx(NORMAL, _CLEAR_ _TOP_ "");
+    return PM3_SUCCESS;
+}
+
 static command_t CommandTable[] = {
 
-    {"--------",CmdHelp,      AlwaysAvailable,         "----------------------- " _CYAN_("Technology") " -----------------------"},
-
-    {"analyse", CmdAnalyse,   AlwaysAvailable,         "{ Analyse utils... }"},
-    {"data",    CmdData,      AlwaysAvailable,         "{ Plot window / data buffer manipulation... }"},
-    {"emv",     CmdEMV,       AlwaysAvailable,         "{ EMV ISO-14443 / ISO-7816... }"},
-    {"hf",      CmdHF,        AlwaysAvailable,         "{ High frequency commands... }"},
-    {"hw",      CmdHW,        AlwaysAvailable,         "{ Hardware commands... }"},
-    {"lf",      CmdLF,        AlwaysAvailable,         "{ Low frequency commands... }"},
-    {"mem",     CmdFlashMem,  IfPm3Flash,              "{ Flash Memory manipulation... }"},
-    {"reveng",  CmdRev,       AlwaysAvailable,         "{ CRC calculations from RevEng software }"},
-    {"smart",   CmdSmartcard, AlwaysAvailable,         "{ Smart card ISO-7816 commands... }"},
-    {"script",  CmdScript,    AlwaysAvailable,         "{ Scripting commands }"},
-    {"trace",   CmdTrace,     AlwaysAvailable,         "{ Trace manipulation... }"},
-    {"usart",   CmdUsart,     IfPm3FpcUsartFromUsb,    "{ USART commands... }"},
-    {"wiegand", CmdWiegand,   AlwaysAvailable,         "{ Wiegand format manipulation... }"},
-    {"--------",CmdHelp,      AlwaysAvailable,         "----------------------- " _CYAN_("General") " -----------------------"},
-    {"auto",    CmdAuto,      IfPm3Present,           "Automated detection process for unknown tags"},
-    {"help",    CmdHelp,      AlwaysAvailable,         "This help. Use " _YELLOW_("'<command> help'") " for details of a particular command."},
-    {"hints",   CmdHints,     AlwaysAvailable,         "Turn hints on / off"},
-    {"msleep",  CmdMsleep,    AlwaysAvailable,         "Add a pause in milliseconds"},
-    {"pref",    CmdPref,      AlwaysAvailable,         "Edit preferences"},
-    {"rem",     CmdRem,       AlwaysAvailable,         "Add a text line in log file"},
-    {"quit",    CmdQuit,      AlwaysAvailable,         ""},
-    {"exit",    CmdQuit,      AlwaysAvailable,         "Exit program"},
+    {"help",         CmdHelp,      AlwaysAvailable,         "Use `" _YELLOW_("<command> help") "` for details of a command"},
+    {"prefs",        CmdPref,      AlwaysAvailable,         "{ Edit client/device preferences... }"},
+    {"--------",     CmdHelp,      AlwaysAvailable,         "----------------------- " _CYAN_("Technology") " -----------------------"},
+    {"analyse",      CmdAnalyse,   AlwaysAvailable,         "{ Analyse utils... }"},
+    {"data",         CmdData,      AlwaysAvailable,         "{ Plot window / data buffer manipulation... }"},
+    {"emv",          CmdEMV,       AlwaysAvailable,         "{ EMV ISO-14443 / ISO-7816... }"},
+    {"hf",           CmdHF,        AlwaysAvailable,         "{ High frequency commands... }"},
+    {"hw",           CmdHW,        AlwaysAvailable,         "{ Hardware commands... }"},
+    {"lf",           CmdLF,        AlwaysAvailable,         "{ Low frequency commands... }"},
+    {"mem",          CmdFlashMem,  IfPm3Flash,              "{ Flash memory manipulation... }"},
+    {"nfc",          CmdNFC,       AlwaysAvailable,         "{ NFC commands... }"},
+    {"reveng",       CmdRev,       AlwaysAvailable,         "{ CRC calculations from RevEng software... }"},
+    {"smart",        CmdSmartcard, AlwaysAvailable,         "{ Smart card ISO-7816 commands... }"},
+    {"script",       CmdScript,    AlwaysAvailable,         "{ Scripting commands... }"},
+    {"trace",        CmdTrace,     AlwaysAvailable,         "{ Trace manipulation... }"},
+    {"usart",        CmdUsart,     IfPm3FpcUsartFromUsb,    "{ USART commands... }"},
+    {"wiegand",      CmdWiegand,   AlwaysAvailable,         "{ Wiegand format manipulation... }"},
+    {"--------",     CmdHelp,      AlwaysAvailable,         "----------------------- " _CYAN_("General") " -----------------------"},
+    {"auto",         CmdAuto,      IfPm3Present,            "Automated detection process for unknown tags"},
+    {"clear",        CmdClear,     AlwaysAvailable,         "Clear screen"},
+    {"hints",        CmdHints,     AlwaysAvailable,         "Turn hints on / off"},
+    {"msleep",       CmdMsleep,    AlwaysAvailable,         "Add a pause in milliseconds"},
+    {"rem",          CmdRem,       AlwaysAvailable,         "Add a text line in log file"},
+    {"quit",         CmdQuit,      AlwaysAvailable,         ""},
+    {"exit",         CmdQuit,      AlwaysAvailable,         "Exit program"},
     {NULL, NULL, NULL, NULL}
 };
 

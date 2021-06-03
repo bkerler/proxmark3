@@ -14,10 +14,12 @@
 #include <inttypes.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "uart/uart.h"
 #include "ui.h"
 #include "crc16.h"
+#include "util.h" // g_pendingPrompt
 #include "util_posix.h" // msclock
 #include "util_darwin.h" // en/dis-ableNapp();
 
@@ -289,21 +291,25 @@ static void PacketResponseReceived(PacketResponseNG *packet) {
             }
 
             if (flag & FLAG_LOG) {
+                if (g_pendingPrompt) {
+                    PrintAndLogEx(NORMAL, "");
+                    g_pendingPrompt = false;
+                }
                 //PrintAndLogEx(NORMAL, "[" _MAGENTA_("pm3") "] ["_BLUE_("#")"] " "%s", s);
                 PrintAndLogEx(NORMAL, "[" _BLUE_("#") "] %s", s);
             } else {
                 if (flag & FLAG_INPLACE)
-                    printf("\r");
-                printf("%s", s);
-                if (flag & FLAG_NEWLINE)
-                    printf("\r\n");
-            }
+                    PrintAndLogEx(NORMAL, "\r" NOLF);
 
-            fflush(stdout);
+                PrintAndLogEx(NORMAL, "%s" NOLF, s);
+
+                if (flag & FLAG_NEWLINE)
+                    PrintAndLogEx(NORMAL, "");
+            }
             break;
         }
         case CMD_DEBUG_PRINT_INTEGERS: {
-            if (! packet->ng)
+            if (packet->ng == false)
                 PrintAndLogEx(NORMAL, "[" _MAGENTA_("pm3") "] ["_BLUE_("#")"] " "%" PRIx64 ", %" PRIx64 ", %" PRIx64 "", packet->oldarg[0], packet->oldarg[1], packet->oldarg[2]);
             break;
         }
@@ -536,7 +542,7 @@ bool IsCommunicationThreadDead(void) {
     return ret;
 }
 
-bool OpenProxmark(char *port, bool wait_for_port, int timeout, bool flash_mode, uint32_t speed) {
+bool OpenProxmark(pm3_device **dev, char *port, bool wait_for_port, int timeout, bool flash_mode, uint32_t speed) {
 
     if (!wait_for_port) {
         PrintAndLogEx(INFO, "Using UART port " _YELLOW_("%s"), port);
@@ -583,15 +589,19 @@ bool OpenProxmark(char *port, bool wait_for_port, int timeout, bool flash_mode, 
 
         pthread_create(&communication_thread, NULL, &uart_communication, &conn);
         __atomic_clear(&comm_thread_dead, __ATOMIC_SEQ_CST);
-        session.pm3_present = true;
+        session.pm3_present = true; // TODO support for multiple devices
 
         fflush(stdout);
+        if (*dev == NULL) {
+            *dev = calloc(sizeof(pm3_device), sizeof(uint8_t));
+        }
+        (*dev)->conn = &conn; // TODO conn shouldn't be global
         return true;
     }
 }
 
 // check if we can communicate with Pm3
-int TestProxmark(void) {
+int TestProxmark(pm3_device *dev) {
 
     PacketResponseNG resp;
     uint16_t len = 32;
@@ -654,8 +664,8 @@ int TestProxmark(void) {
     return PM3_SUCCESS;
 }
 
-void CloseProxmark(void) {
-    conn.run = false;
+void CloseProxmark(pm3_device *dev) {
+    dev->conn->run = false;
 
 #ifdef __BIONIC__
     if (communication_thread != 0) {
@@ -830,6 +840,9 @@ static bool dl_it(uint8_t *dest, uint32_t bytes, PacketResponseNG *response, siz
         if (getReply(response)) {
 
             if (response->cmd == CMD_ACK)
+                return true;
+            // Spiffs download is converted to NG,
+            if (response->cmd == CMD_SPIFFS_DOWNLOAD)
                 return true;
 
             // sample_buf is a array pointer, located in data.c

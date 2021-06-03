@@ -22,7 +22,6 @@
 #include "crypto/libpcrypto.h"
 #include "additional_ca.h"
 #include "cose.h"
-#include "emv/dump.h"
 #include "ui.h"
 #include "util.h"
 
@@ -255,7 +254,7 @@ int FIDOCheckDERAndGetKey(uint8_t *der, size_t derLen, bool verbose, uint8_t *pu
     if (res) {
         PrintAndLogEx(ERR, "ERROR: DER verify returned 0x%x - %s\n", (res < 0) ? -res : res, ecdsa_get_error(res));
     } else {
-        PrintAndLogEx(SUCCESS, "Certificate OK.\n");
+        PrintAndLogEx(SUCCESS, "Certificate ( " _GREEN_("ok") " )\n");
     }
 
     if (verbose) {
@@ -274,7 +273,7 @@ int FIDOCheckDERAndGetKey(uint8_t *der, size_t derLen, bool verbose, uint8_t *pu
     }
 
     if (verbose)
-        PrintAndLogEx(NORMAL, "------------------DER-------------------");
+        PrintAndLogEx(INFO, "------------------DER-------------------");
 
     mbedtls_x509_crt_free(&cert);
     mbedtls_x509_crt_free(&cacert);
@@ -364,10 +363,10 @@ static int FIDO2CheckSignature(json_t *root, uint8_t *publickey, uint8_t *sign, 
     uint8_t sval[300] = {0};
 
     int res = ecdsa_asn1_get_signature(sign, signLen, rval, sval);
-    if (!res) {
+    if (res == PM3_SUCCESS) {
         if (verbose) {
-            PrintAndLogEx(NORMAL, "  r: %s", sprint_hex(rval, 32));
-            PrintAndLogEx(NORMAL, "  s: %s", sprint_hex(sval, 32));
+            PrintAndLogEx(INFO, "  r: %s", sprint_hex(rval, 32));
+            PrintAndLogEx(INFO, "  s: %s", sprint_hex(sval, 32));
         }
 
         uint8_t clientDataHash[32] = {0};
@@ -389,13 +388,13 @@ static int FIDO2CheckSignature(json_t *root, uint8_t *publickey, uint8_t *sign, 
         res = ecdsa_signature_verify(MBEDTLS_ECP_DP_SECP256R1, publickey, xbuf, xbuflen, sign, signLen, true);
         if (res) {
             if (res == MBEDTLS_ERR_ECP_VERIFY_FAILED) {
-                PrintAndLogEx(WARNING, "Signature is " _RED_("NOT VALID"));
+                PrintAndLogEx(WARNING, "Signature is ( " _RED_("not valid") " )");
             } else {
                 PrintAndLogEx(WARNING, "Other signature check error: %x %s", (res < 0) ? -res : res, ecdsa_get_error(res));
             }
             return res;
         } else {
-            PrintAndLogEx(SUCCESS, "Signature is OK.");
+            PrintAndLogEx(SUCCESS, "Signature is ( " _GREEN_("ok") " )");
         }
     } else {
         PrintAndLogEx(ERR, "Invalid signature. res = %d.", res);
@@ -445,9 +444,9 @@ int FIDO2MakeCredentionalParseRes(json_t *root, uint8_t *data, size_t dataLen, b
 
     // check RP ID Hash
     if (CheckrpIdHash(root, ubuf)) {
-        PrintAndLogEx(SUCCESS, "rpIdHash OK.");
+        PrintAndLogEx(SUCCESS, "rpIdHash ( " _GREEN_("ok")" )");
     } else {
-        PrintAndLogEx(ERR, "rpIdHash ERROR!");
+        PrintAndLogEx(ERR, "rpIdHash " _RED_("ERROR!!"));
     }
 
     PrintAndLogEx(INFO, "Flags 0x%02x:", ubuf[32]);
@@ -488,9 +487,9 @@ int FIDO2MakeCredentionalParseRes(json_t *root, uint8_t *data, size_t dataLen, b
 
     if (showCBOR) {
         PrintAndLogEx(INFO, "COSE structure:");
-        PrintAndLogEx(NORMAL, "---------------- CBOR ------------------");
+        PrintAndLogEx(INFO, "---------------- CBOR ------------------");
         TinyCborPrintFIDOPackage(fido2COSEKey, true, &ubuf[55 + cridlen], cplen);
-        PrintAndLogEx(NORMAL, "---------------- CBOR ------------------");
+        PrintAndLogEx(INFO, "---------------- CBOR ------------------");
     }
 
     res = COSEGetECDSAKey(&ubuf[55 + cridlen], cplen, verbose, coseKey);
@@ -542,11 +541,12 @@ int FIDO2MakeCredentionalParseRes(json_t *root, uint8_t *data, size_t dataLen, b
             res = CborGetArrayBinStringValue(&mapsmt, der, sizeof(der), &derLen);
             cbor_check(res);
             if (verbose2) {
-                PrintAndLogEx(NORMAL, "DER certificate[%zu]:\n------------------DER-------------------", derLen);
-                dump_buffer_simple((const unsigned char *)der, derLen, NULL);
-                PrintAndLogEx(NORMAL, "\n----------------DER---------------------");
+                PrintAndLogEx(INFO, "DER certificate[%zu]:", derLen);
+                PrintAndLogEx(INFO, "------------------DER-------------------");
+                PrintAndLogEx(INFO, "%s", sprint_hex(der, derLen));
+                PrintAndLogEx(INFO, "----------------DER---------------------");
             } else {
-                PrintAndLogEx(NORMAL, "DER [%zu]: %s...", derLen, sprint_hex(der, MIN(derLen, 16)));
+                PrintAndLogEx(INFO, "DER [%zu]: %s...", derLen, sprint_hex(der, MIN(derLen, 16)));
             }
             JsonSaveBufAsHexCompact(root, "$.AppData.DER", der, derLen);
         }
@@ -558,9 +558,9 @@ int FIDO2MakeCredentionalParseRes(json_t *root, uint8_t *data, size_t dataLen, b
 
     // print DER certificate in TLV view
     if (showDERTLV) {
-        PrintAndLogEx(NORMAL, "----------------DER TLV-----------------");
+        PrintAndLogEx(INFO, "----------------DER TLV-----------------");
         asn1_print(der, derLen, "  ");
-        PrintAndLogEx(NORMAL, "----------------DER TLV-----------------");
+        PrintAndLogEx(INFO, "----------------DER TLV-----------------");
     }
     FIDOCheckDERAndGetKey(der, derLen, verbose, public_key, sizeof(public_key));
     JsonSaveBufAsHexCompact(root, "$.AppData.DERPublicKey", public_key, sizeof(public_key));
@@ -704,9 +704,9 @@ int FIDO2GetAssertionParseRes(json_t *root, uint8_t *data, size_t dataLen, bool 
 
     // check RP ID Hash
     if (CheckrpIdHash(root, ubuf)) {
-        PrintAndLogEx(SUCCESS, "rpIdHash OK.");
+        PrintAndLogEx(SUCCESS, "rpIdHash ( " _GREEN_("ok")" )");
     } else {
-        PrintAndLogEx(ERR, "rpIdHash ERROR!");
+        PrintAndLogEx(ERR, "rpIdHash " _RED_("ERROR!!"));
     }
 
     PrintAndLogEx(INFO, "Flags 0x%02x:", ubuf[32]);
@@ -760,7 +760,7 @@ int FIDO2GetAssertionParseRes(json_t *root, uint8_t *data, size_t dataLen, bool 
                 JsonLoadBufAsHex(root, "$.UserEntity.id", idbuf, sizeof(idbuf), &idbuflen);
 
                 if (idbuflen == n && !memcmp(idbuf, cid, idbuflen)) {
-                    PrintAndLogEx(SUCCESS, "UserEntity id OK.");
+                    PrintAndLogEx(SUCCESS, "UserEntity id ( " _GREEN_("ok") " )");
                 } else {
                     PrintAndLogEx(ERR, "ERROR: Wrong UserEntity id (from json: %s)", sprint_hex(idbuf, idbuflen));
                 }

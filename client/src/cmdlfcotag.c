@@ -8,37 +8,22 @@
 // Low frequency COTAG commands
 //-----------------------------------------------------------------------------
 #include "cmdlfcotag.h"  // COTAG function declarations
-
 #include <string.h>
 #include <stdio.h>
-
 #include "cmdparser.h"    // command_t
 #include "comms.h"
 #include "lfdemod.h"
 #include "cmddata.h"    // getSamples
 #include "ui.h"         // PrintAndLog
 #include "ctype.h"      // tolower
+#include "cliparser.h"
 
 static int CmdHelp(const char *Cmd);
 
-static int usage_lf_cotag_read(void) {
-    PrintAndLogEx(NORMAL, "Usage: lf COTAG read [h] <signaldata>");
-    PrintAndLogEx(NORMAL, "Options:");
-    PrintAndLogEx(NORMAL, "      h          : This help");
-    PrintAndLogEx(NORMAL, "      <0|1|2>    : 0 - HIGH/LOW signal; maxlength bigbuff");
-    PrintAndLogEx(NORMAL, "                 : 1 - translation of HI/LO into bytes with manchester 0,1");
-    PrintAndLogEx(NORMAL, "                 : 2 - raw signal; maxlength bigbuff");
-    PrintAndLogEx(NORMAL, "");
-    PrintAndLogEx(NORMAL, "Example:");
-    PrintAndLogEx(NORMAL, "        lf cotag read 0");
-    PrintAndLogEx(NORMAL, "        lf cotag read 1");
-    return PM3_SUCCESS;
-}
-
 // COTAG demod should be able to use GraphBuffer,
 // when data load samples
-static int CmdCOTAGDemod(const char *Cmd) {
-    (void)Cmd; // Cmd is not used so far
+int demodCOTAG(bool verbose) {
+    (void) verbose; // unused so far
 
     uint8_t bits[COTAG_BITS] = {0};
     size_t bitlen = COTAG_BITS;
@@ -73,25 +58,90 @@ static int CmdCOTAGDemod(const char *Cmd) {
     return PM3_SUCCESS;
 }
 
+static int CmdCOTAGDemod(const char *Cmd) {
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "lf cotag demod",
+                  "Try to find COTAG preamble, if found decode / descramble data",
+                  "lf cotag demod"
+                 );
+
+    void *argtable[] = {
+        arg_param_begin,
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, true);
+    CLIParserFree(ctx);
+    return demodCOTAG(true);
+}
+
 // When reading a COTAG.
 // 0 = HIGH/LOW signal - maxlength bigbuff
 // 1 = translation for HI/LO into bytes with manchester 0,1 - length 300
 // 2 = raw signal -  maxlength bigbuff
-static int CmdCOTAGRead(const char *Cmd) {
+static int CmdCOTAGReader(const char *Cmd) {
 
-    if (tolower(Cmd[0]) == 'h') return usage_lf_cotag_read();
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "lf cotag reader",
+                  "read a COTAG tag,  the current support for COTAG is limited. ",
+                  "lf cotag reader -2"
+                 );
 
-    uint32_t rawsignal = 1;
-    sscanf(Cmd, "%u", &rawsignal);
+    void *argtable[] = {
+        arg_param_begin,
+        arg_lit0("1", NULL, "HIGH/LOW signal; maxlength bigbuff"),
+        arg_lit0("2", NULL, "translation of HIGH/LOW into bytes with manchester 0,1"),
+        arg_lit0("3", NULL, "raw signal; maxlength bigbuff"),
+        arg_param_end
+    };
 
+    CLIExecWithReturn(ctx, Cmd, argtable, false);
+    bool mode0 = arg_get_lit(ctx, 1);
+    bool mode1 = arg_get_lit(ctx, 2);
+    bool mode2 = arg_get_lit(ctx, 3);
+    CLIParserFree(ctx);
+
+    if ((mode0 + mode1 + mode2) > 1) {
+        PrintAndLogEx(ERR, "You can only use one option at a time");
+        return PM3_EINVARG;
+    }
+    uint8_t mode = 0xFF;
+    if (mode0)
+        mode = 0;
+    if (mode1)
+        mode = 1;
+    if (mode2)
+        mode = 2;
+
+    struct p {
+        uint8_t mode;
+    } PACKED payload;
+    payload.mode = mode;
+
+    PacketResponseNG resp;
     clearCommandBuffer();
-    SendCommandMIX(CMD_LF_COTAG_READ, rawsignal, 0, 0, NULL, 0);
-    if (!WaitForResponseTimeout(CMD_LF_COTAG_READ, NULL, 7000)) {
-        PrintAndLogEx(WARNING, "command execution time out");
-        return PM3_ETIMEOUT;
+    SendCommandNG(CMD_LF_COTAG_READ, (uint8_t *)&payload, sizeof(payload));
+
+    uint8_t timeout = 3;
+    int res = PM3_SUCCESS;
+    while (!WaitForResponseTimeout(CMD_LF_COTAG_READ, &resp, 1000)) {
+        timeout--;
+        PrintAndLogEx(NORMAL, "." NOLF);
+        if (timeout == 0) {
+            PrintAndLogEx(NORMAL, "");
+            PrintAndLogEx(WARNING, "command execution time out");
+            SendCommandNG(CMD_BREAK_LOOP, NULL, 0);
+            res = PM3_ETIMEOUT;
+        }
     }
 
-    switch (rawsignal) {
+    if (res != PM3_SUCCESS) {
+        return res;
+    }
+
+    if (timeout != 3)
+        PrintAndLogEx(NORMAL, "");
+
+    switch (payload.mode) {
         case 0:
         case 2: {
             CmdPlot("");
@@ -100,25 +150,20 @@ static int CmdCOTAGRead(const char *Cmd) {
             break;
         }
         case 1: {
-
-            if (!GetFromDevice(BIG_BUF, DemodBuffer, COTAG_BITS, 0, NULL, 0, NULL, 1000, false)) {
-                PrintAndLogEx(WARNING, "timeout while waiting for reply.");
-                return PM3_ETIMEOUT;
-            }
-            DemodBufferLen = COTAG_BITS;
-            return CmdCOTAGDemod("");
+            memcpy(DemodBuffer, resp.data.asBytes, resp.length);
+            DemodBufferLen = resp.length;
+            return demodCOTAG(true);
         }
     }
     return PM3_SUCCESS;
 }
 
 static command_t CommandTable[] = {
-    {"help",      CmdHelp,         AlwaysAvailable, "This help"},
-    {"demod",     CmdCOTAGDemod,   AlwaysAvailable, "Tries to decode a COTAG signal"},
-    {"read",      CmdCOTAGRead,    IfPm3Lf,         "Attempt to read and extract tag data"},
+    {"help",    CmdHelp,         AlwaysAvailable, "This help"},
+    {"demod",   CmdCOTAGDemod,   AlwaysAvailable, "demodulate an COTAG tag"},
+    {"reader",  CmdCOTAGReader,  IfPm3Lf,         "attempt to read and extract tag data"},
     {NULL, NULL, NULL, NULL}
 };
-
 static int CmdHelp(const char *Cmd) {
     (void)Cmd; // Cmd is not used so far
     CmdsHelp(CommandTable);
@@ -130,10 +175,6 @@ int CmdLFCOTAG(const char *Cmd) {
     return CmdsParse(CommandTable, Cmd);
 }
 
-int demodCOTAG(void) {
-    return CmdCOTAGDemod("");
-}
-
 int readCOTAGUid(void) {
-    return (CmdCOTAGRead("") == PM3_SUCCESS);
+    return (CmdCOTAGReader("-2") == PM3_SUCCESS);
 }

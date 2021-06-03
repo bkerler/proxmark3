@@ -41,6 +41,8 @@
 #include <stdlib.h>  // qsort
 #include "parity.h"  // for parity test
 #include "pm3_cmd.h" // error codes
+#include "commonutil.h"  // Arraylen
+
 // **********************************************************************************************
 // ---------------------------------Utilities Section--------------------------------------------
 // **********************************************************************************************
@@ -479,8 +481,8 @@ void askAmp(uint8_t *bits, size_t size) {
 uint32_t manchesterEncode2Bytes(uint16_t datain) {
     uint32_t output = 0;
     for (uint8_t i = 0; i < 16; i++) {
-        uint8_t curBit = (datain >> (15 - i) & 1);
-        output |= (1 << (((15 - i) * 2) + curBit));
+        uint8_t b = (datain >> (15 - i) & 1);
+        output |= (1 << (((15 - i) * 2) + b));
     }
     return output;
 }
@@ -768,6 +770,22 @@ int DetectASKClock(uint8_t *dest, size_t size, int *clock, int maxErr) {
             }
         }
         //if (g_debugMode == 2) prnt("DEBUG ASK: clk %d, # Errors %d, Current Best Clk %d, bestStart %d", clk[k], bestErr[k], clk[best], bestStart[best]);
+    }
+
+    bool chg = false;
+    for (i = 0; i < ARRAYLEN(bestErr); i++) {
+        chg = (bestErr[i] != 1000);
+        if (chg)
+            break;
+        chg = (bestStart[i] != 0);
+        if (chg)
+            break;
+    }
+
+    // just noise - no super good detection. good enough
+    if (chg == false) {
+        if (g_debugMode == 2) prnt("DEBUG DetectASKClock: no good values detected - aborting");
+        return -2;
     }
 
     if (!found_clk)
@@ -1080,6 +1098,11 @@ int DetectPSKClock(uint8_t *dest, size_t size, int clock, size_t *firstPhaseShif
 
     *firstPhaseShift = firstFullWave;
     if (g_debugMode == 2) prnt("DEBUG PSK: firstFullWave: %zu, waveLen: %d", firstFullWave, fullWaveLen);
+
+    // Avoid autodetect if user selected a clock
+    for (uint8_t validClk = 1; validClk < 8; validClk++) {
+        if (clock == clk[validClk]) return (clock);
+    }
 
     //test each valid clock from greatest to smallest to see which lines up
     for (clkCnt = 7; clkCnt >= 1 ; clkCnt--) {
@@ -1663,14 +1686,15 @@ int askdemod_ext(uint8_t *bits, size_t *size, int *clk, int *invert, int maxErr,
         return errCnt;
     }
 
+    *startIdx = start - (*clk / 2);
     if (g_debugMode == 2) prnt("DEBUG: (askdemod_ext) Weak wave detected: startIdx %i", *startIdx);
 
-    int lastBit;  //set first clock check - can go negative
-    size_t i, bitnum = 0;     //output counter
+    int lastBit;              // set first clock check - can go negative
+    size_t i, bitnum = 0;     // output counter
     uint8_t midBit = 0;
-    uint8_t tol = 0;  //clock tolerance adjust - waves will be accepted as within the clock if they fall + or - this value + clock from last valid wave
-    if (*clk <= 32) tol = 1;    //clock tolerance may not be needed anymore currently set to + or - 1 but could be increased for poor waves or removed entirely
-    size_t MaxBits = 3072;    //max bits to collect
+    uint8_t tol = 0;          // clock tolerance adjust - waves will be accepted as within the clock if they fall + or - this value + clock from last valid wave
+    if (*clk <= 32) tol = 1;  // clock tolerance may not be needed anymore currently set to + or - 1 but could be increased for poor waves or removed entirely
+    size_t MaxBits = 3072;    // max bits to collect
     lastBit = start - *clk;
 
     for (i = start; i < *size; ++i) {
@@ -1696,8 +1720,13 @@ int askdemod_ext(uint8_t *bits, size_t *size, int *clk, int *invert, int maxErr,
             } else if (bits[i] <= low) {
                 bits[bitnum++] = *invert ^ 1;
             } else if (i - lastBit >= *clk / 2 + tol) {
-                bits[bitnum] = bits[bitnum - 1];
-                bitnum++;
+                if (bitnum > 0) {
+                    bits[bitnum] = bits[bitnum - 1];
+                    bitnum++;
+                } else {
+                    bits[bitnum] = 0;
+                    bitnum++;
+                }
             } else { //in tolerance - looking for peak
                 continue;
             }
@@ -2165,26 +2194,6 @@ int HIDdemodFSK(uint8_t *dest, size_t *size, uint32_t *hi2, uint32_t *hi, uint32
         else // 0 1
             *lo |= 0;
     }
-    return (int)start_idx;
-}
-
-// Find IDTEC PSK1, RF  Preamble == 0x4944544B, Demodsize 64bits
-// by iceman
-int detectIdteck(uint8_t *dest, size_t *size) {
-    //make sure buffer has data
-    if (*size < 64 * 2) return -1;
-
-    if (signalprop.isnoise) return -2;
-
-    size_t start_idx = 0;
-    uint8_t preamble[] = {0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 1};
-
-    //preamble not found
-    if (!preambleSearch(dest, preamble, sizeof(preamble), size, &start_idx))
-        return -3;
-
-    // wrong demoded size
-    if (*size != 64) return -4;
     return (int)start_idx;
 }
 

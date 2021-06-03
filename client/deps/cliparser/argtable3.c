@@ -830,7 +830,7 @@ static void arg_date_errorfn(
     /* make argval NULL safe */
     argval = argval ? argval : "";
 
-    fprintf(fp, "%s: ", progname);
+    fprintf(fp, "[!] %s: ", progname);
     switch (errorcode) {
         case EMINCOUNT:
             fputs("missing option ", fp);
@@ -846,11 +846,11 @@ static void arg_date_errorfn(
             struct tm tm;
             char buff[200];
 
-            fprintf(fp, "illegal timestamp format \"%s\"\n", argval);
+            fprintf(fp, "[!] illegal timestamp format \"%s\"\n", argval);
             memset(&tm, 0, sizeof(tm));
             arg_strptime("1999-12-31 23:59:59", "%F %H:%M:%S", &tm);
             strftime(buff, sizeof(buff), parent->format, &tm);
-            printf("correct format is \"%s\"\n", buff);
+            printf("[+] correct format is \"%s\"\n", buff);
             break;
         }
     }
@@ -1442,7 +1442,7 @@ static void arg_dbl_errorfn(
     /* make argval NULL safe */
     argval = argval ? argval : "";
 
-    fprintf(fp, "%s: ", progname);
+    fprintf(fp, "[!] %s: ", progname);
     switch (errorcode) {
         case EMINCOUNT:
             fputs("missing option ", fp);
@@ -1455,7 +1455,7 @@ static void arg_dbl_errorfn(
             break;
 
         case EBADDOUBLE:
-            fprintf(fp, "invalid argument \"%s\" to option ", argval);
+            fprintf(fp, "[!] invalid argument \"%s\" to option ", argval);
             arg_print_option(fp, shortopts, longopts, datatype, "\n");
             break;
     }
@@ -1805,7 +1805,7 @@ static void arg_file_errorfn(
     /* make argval NULL safe */
     argval = argval ? argval : "";
 
-    fprintf(fp, "%s: ", progname);
+    fprintf(fp, "[!] %s: ", progname);
     switch (errorcode) {
         case EMINCOUNT:
             fputs("missing option ", fp);
@@ -1818,7 +1818,7 @@ static void arg_file_errorfn(
             break;
 
         default:
-            fprintf(fp, "unknown error at \"%s\"\n", argval);
+            fprintf(fp, "[!] unknown error at \"%s\"\n", argval);
     }
 }
 
@@ -1927,9 +1927,7 @@ struct arg_file *arg_filen(
 #include <stdlib.h>
 #include <limits.h>
 #include <ctype.h>
-
 #include "argtable3.h"
-
 
 static void arg_int_resetfn(struct arg_int *parent) {
     ARG_TRACE(("%s:resetfn(%p)\n", __FILE__, parent));
@@ -2138,7 +2136,7 @@ static void arg_int_errorfn(
     /* make argval NULL safe */
     argval = argval ? argval : "";
 
-    fprintf(fp, "%s: ", progname);
+    fprintf(fp, "[!] %s: ", progname);
     switch (errorcode) {
         case EMINCOUNT:
             fputs("missing option ", fp);
@@ -2151,7 +2149,7 @@ static void arg_int_errorfn(
             break;
 
         case EBADINT:
-            fprintf(fp, "invalid argument \"%s\" to option ", argval);
+            fprintf(fp, "[!] invalid argument \"%s\" to option ", argval);
             arg_print_option(fp, shortopts, longopts, datatype, "\n");
             break;
 
@@ -2226,6 +2224,263 @@ struct arg_int *arg_intn(
     ARG_TRACE(("arg_intn() returns %p\n", result));
     return result;
 }
+
+
+// uint64_t support
+#include <stdint.h>
+#include <limits.h>
+#include <inttypes.h>
+static uint64_t strtollu0X(const char *str,
+                           const char * *endptr,
+                           char X,
+                           int base) {
+    uint64_t val;               /* stores result */
+    int s = 1;                    /* sign is +1 or -1 */
+    const char *ptr = str;        /* ptr to current position in str */
+
+    /* skip leading whitespace */
+    while (ISSPACE(*ptr))
+        ptr++;
+    // printf("1) %s\n",ptr);
+
+    /* scan optional sign character */
+    switch (*ptr) {
+        case '+':
+            ptr++;
+            s = 1;
+            break;
+        case '-':
+            ptr++;
+            s = -1;
+            break;
+        default:
+            s = 1;
+            break;
+    }
+    // printf("2) %s\n",ptr);
+
+    /* '0X' prefix */
+    if ((*ptr++) != '0') {
+        /* printf("failed to detect '0'\n"); */
+        *endptr = str;
+        return 0;
+    }
+    // printf("3) %s\n",ptr);
+    if (toupper(*ptr++) != toupper(X)) {
+        /* printf("failed to detect '%c'\n",X); */
+        *endptr = str;
+        return 0;
+    }
+    // printf("4) %s\n",ptr);
+
+    /* attempt conversion on remainder of string using strtol() */
+    val = strtoull(ptr, (char * *)endptr, base);
+
+    if (*endptr == ptr) {
+        /* conversion failed */
+        *endptr = str;
+        return 0;
+    }
+
+    /* success */
+    return s * val;
+}
+
+
+static void arg_u64_resetfn(struct arg_u64 *parent) {
+    ARG_TRACE(("%s:resetfn(%p)\n", __FILE__, parent));
+    parent->count = 0;
+}
+
+static int arg_u64_scanfn(struct arg_u64 *parent, const char *argval) {
+    int errorcode = 0;
+    if (parent->count == parent->hdr.maxcount) {
+        /* maximum number of arguments exceeded */
+        errorcode = EMAXCOUNT;
+    } else if (!argval) {
+        /* a valid argument with no argument value was given. */
+        /* This happens when an optional argument value was invoked. */
+        /* leave parent arguiment value unaltered but still count the argument. */
+        parent->count++;
+    } else {
+        uint64_t val;
+        const char *end;
+
+        /* attempt to extract hex integer (eg: +0x123) from argval into val conversion */
+        val = strtollu0X(argval, &end, 'X', 16);
+        if (end == argval) {
+            /* hex failed, attempt octal conversion (eg +0o123) */
+            val = strtollu0X(argval, &end, 'O', 8);
+            if (end == argval) {
+                /* octal failed, attempt binary conversion (eg +0B101) */
+                val = strtollu0X(argval, &end, 'B', 2);
+                if (end == argval) {
+                    /* binary failed, attempt decimal conversion with no prefix (eg 1234) */
+                    val = strtoull(argval, (char * *)&end, 10);
+                    if (end == argval) {
+                        /* all supported number formats failed */
+                        return EBADINT;
+                    }
+                }
+            }
+        }
+
+        /* Safety check for integer overflow. WARNING: this check    */
+        /* achieves nothing on machines where size(int)==size(long). */
+        if (val > ULLONG_MAX)
+#ifdef __STDC_WANT_SECURE_LIB__
+            errorcode = EOVERFLOW_;
+#else
+            errorcode = EOVERFLOW;
+#endif
+
+        /* Detect any suffixes (KB,MB,GB) and multiply argument value appropriately. */
+        /* We need to be mindful of integer overflows when using such big numbers.   */
+        if (detectsuffix(end, "KB")) {           /* kilobytes */
+            if (val > (ULLONG_MAX / 1024))
+#ifdef __STDC_WANT_SECURE_LIB__
+                errorcode = EOVERFLOW_;          /* Overflow would occur if we proceed */
+#else
+                errorcode = EOVERFLOW;          /* Overflow would occur if we proceed */
+#endif
+            else
+                val *= 1024;                    /* 1KB = 1024 */
+        } else if (detectsuffix(end, "MB")) {    /* megabytes */
+            if (val > (ULLONG_MAX / 1048576))
+#ifdef __STDC_WANT_SECURE_LIB__
+                errorcode = EOVERFLOW_;          /* Overflow would occur if we proceed */
+#else
+                errorcode = EOVERFLOW;          /* Overflow would occur if we proceed */
+#endif
+            else
+                val *= 1048576;                 /* 1MB = 1024*1024 */
+        } else if (detectsuffix(end, "GB")) {    /* gigabytes */
+            if (val > (ULLONG_MAX / 1073741824))
+#ifdef __STDC_WANT_SECURE_LIB__
+                errorcode = EOVERFLOW_;          /* Overflow would occur if we proceed */
+#else
+                errorcode = EOVERFLOW;          /* Overflow would occur if we proceed */
+#endif
+            else
+                val *= 1073741824;              /* 1GB = 1024*1024*1024 */
+        } else if (!detectsuffix(end, ""))
+            errorcode = EBADINT;                /* invalid suffix detected */
+
+        /* if success then store result in parent->uval[] array */
+        if (errorcode == 0)
+            parent->uval[parent->count++] = val;
+    }
+
+    /* printf("%s:scanfn(%p,%p) returns %d\n",__FILE__,parent,argval,errorcode); */
+    return errorcode;
+}
+
+static int arg_u64_checkfn(struct arg_u64 *parent) {
+    int errorcode = (parent->count < parent->hdr.mincount) ? EMINCOUNT : 0;
+    /*printf("%s:checkfn(%p) returns %d\n",__FILE__,parent,errorcode);*/
+    return errorcode;
+}
+
+static void arg_u64_errorfn(
+    struct arg_u64 *parent,
+    FILE *fp,
+    int errorcode,
+    const char *argval,
+    const char *progname) {
+    const char *shortopts = parent->hdr.shortopts;
+    const char *longopts  = parent->hdr.longopts;
+    const char *datatype  = parent->hdr.datatype;
+
+    /* make argval NULL safe */
+    argval = argval ? argval : "";
+
+    fprintf(fp, "[!] %s: ", progname);
+    switch (errorcode) {
+        case EMINCOUNT:
+            fputs("missing option ", fp);
+            arg_print_option(fp, shortopts, longopts, datatype, "\n");
+            break;
+
+        case EMAXCOUNT:
+            fputs("excess option ", fp);
+            arg_print_option(fp, shortopts, longopts, argval, "\n");
+            break;
+
+        case EBADINT:
+            fprintf(fp, "[!] invalid argument \"%s\" to option ", argval);
+            arg_print_option(fp, shortopts, longopts, datatype, "\n");
+            break;
+
+#ifdef __STDC_WANT_SECURE_LIB__
+        case EOVERFLOW_:
+#else
+        case EOVERFLOW:
+#endif
+            fputs("integer overflow at option ", fp);
+            arg_print_option(fp, shortopts, longopts, datatype, " ");
+            fprintf(fp, "(%s is too large)\n", argval);
+            break;
+    }
+}
+
+struct arg_u64 *arg_u64_0(
+    const char *shortopts,
+    const char *longopts,
+    const char *datatype,
+    const char *glossary) {
+    return arg_u64_n(shortopts, longopts, datatype, 0, 1, glossary);
+}
+
+struct arg_u64 *arg_u64_1(
+    const char *shortopts,
+    const char *longopts,
+    const char *datatype,
+    const char *glossary) {
+    return arg_u64_n(shortopts, longopts, datatype, 1, 1, glossary);
+}
+
+struct arg_u64 *arg_u64_n(
+    const char *shortopts,
+    const char *longopts,
+    const char *datatype,
+    int mincount,
+    int maxcount,
+    const char *glossary) {
+    size_t nbytes;
+    struct arg_u64 *result;
+
+    /* foolproof things by ensuring maxcount is not less than mincount */
+    maxcount = (maxcount < mincount) ? mincount : maxcount;
+
+    nbytes = sizeof(struct arg_u64)    /* storage for struct arg_u64 */
+             + maxcount * sizeof(uint64_t); /* storage for uval[maxcount] array */
+
+    result = (struct arg_u64 *)malloc(nbytes);
+    if (result) {
+        /* init the arg_hdr struct */
+        result->hdr.flag      = ARG_HASVALUE;
+        result->hdr.shortopts = shortopts;
+        result->hdr.longopts  = longopts;
+        result->hdr.datatype  = datatype ? datatype : "<u64>";
+        result->hdr.glossary  = glossary;
+        result->hdr.mincount  = mincount;
+        result->hdr.maxcount  = maxcount;
+        result->hdr.parent    = result;
+        result->hdr.resetfn   = (arg_resetfn *)arg_u64_resetfn;
+        result->hdr.scanfn    = (arg_scanfn *)arg_u64_scanfn;
+        result->hdr.checkfn   = (arg_checkfn *)arg_u64_checkfn;
+        result->hdr.errorfn   = (arg_errorfn *)arg_u64_errorfn;
+
+        /* store the uval[maxcount] array immediately after the arg_int struct */
+        result->uval  = (uint64_t *)(result + 1);
+        result->count = 0;
+    }
+
+    ARG_TRACE(("arg_u64_n() returns %p\n", result));
+    return result;
+}
+
+
 /*******************************************************************************
  * This file is part of the argtable3 library.
  *
@@ -2299,18 +2554,18 @@ static void arg_lit_errorfn(
 
     switch (errorcode) {
         case EMINCOUNT:
-            fprintf(fp, "%s: missing option ", progname);
+            fprintf(fp, "[!] %s: missing option ", progname);
             arg_print_option(fp, shortopts, longopts, datatype, "\n");
             fprintf(fp, "\n");
             break;
 
         case EMAXCOUNT:
-            fprintf(fp, "%s: extraneous option ", progname);
+            fprintf(fp, "[!] %s: extraneous option ", progname);
             arg_print_option(fp, shortopts, longopts, datatype, "\n");
             break;
     }
 
-    ARG_TRACE(("%s:errorfn(%p, %p, %d, %s, %s)\n", __FILE__, parent, fp,
+    ARG_TRACE(("[!] %s:errorfn(%p, %p, %d, %s, %s)\n", __FILE__, parent, fp,
                errorcode, argval, progname));
 }
 
@@ -2604,7 +2859,7 @@ static void arg_rex_errorfn(struct arg_rex *parent,
     /* make argval NULL safe */
     argval = argval ? argval : "";
 
-    fprintf(fp, "%s: ", progname);
+    fprintf(fp, "[!] %s: ", progname);
     switch (errorcode) {
         case EMINCOUNT:
             fputs("missing option ", fp);
@@ -3535,7 +3790,7 @@ static void arg_str_errorfn(
     /* make argval NULL safe */
     argval = argval ? argval : "";
 
-    fprintf(fp, "%s: ", progname);
+    fprintf(fp, "[!] %s: ", progname);
     switch (errorcode) {
         case EMINCOUNT:
             fputs("missing option ", fp);
@@ -4020,7 +4275,10 @@ static void arg_parse_untagged(int argc,
     /* register an error for each unused argv[] entry */
     while (optind < argc) {
         /*printf("arg_parse_untagged(): argv[%d]=\"%s\" not consumed\n",optind,argv[optind]);*/
-        arg_register_error(endtable, endtable, ARG_ENOMATCH, argv[optind++]);
+        if (argv[optind][0] != '\x00') {
+            arg_register_error(endtable, endtable, ARG_ENOMATCH, argv[optind]);
+        }
+        optind++;
     }
 
     return;
@@ -4195,7 +4453,8 @@ static void arg_cat_option(char *dest,
 #endif
 
         if (datatype) {
-            arg_cat(&dest, "=", &ndest);
+//            arg_cat(&dest, "=", &ndest);
+            arg_cat(&dest, " ", &ndest);
             if (optvalue) {
                 arg_cat(&dest, "[", &ndest);
                 arg_cat(&dest, datatype, &ndest);
@@ -4270,8 +4529,13 @@ static void arg_cat_optionv(char *dest,
     }
 
     if (datatype) {
+        /*        if (longopts)
+                    arg_cat(&dest, "=", &ndest);
+                else if (shortopts)
+                    arg_cat(&dest, " ", &ndest);
+        */
         if (longopts)
-            arg_cat(&dest, "=", &ndest);
+            arg_cat(&dest, " ", &ndest);
         else if (shortopts)
             arg_cat(&dest, " ", &ndest);
 
@@ -4375,11 +4639,13 @@ void arg_print_syntax(FILE *fp, void * *argtable, const char *suffix) {
     /* print GNU style [OPTION] string */
     arg_print_gnuswitch(fp, table);
 
+    size_t len = 0;
+
     /* print remaining options in abbreviated style */
     for (tabindex = 0;
             table[tabindex] && !(table[tabindex]->flag & ARG_TERMINATOR);
             tabindex++) {
-        char syntax[200] = "";
+        char syntax[400] = "";
         const char *shortopts, *longopts, *datatype;
 
         /* skip short options without arg values (they were printed by arg_print_gnu_switch) */
@@ -4416,6 +4682,12 @@ void arg_print_syntax(FILE *fp, void * *argtable, const char *suffix) {
                     fprintf(fp, " [%s]...", syntax);
                     break;
             }
+        }
+
+        len += strlen(syntax);
+        if (len > 60) {
+            fprintf(fp, "\n                   ");
+            len = 0;
         }
     }
 

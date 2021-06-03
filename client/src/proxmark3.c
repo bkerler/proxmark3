@@ -21,6 +21,7 @@
 #include <signal.h>
 #endif
 #include <ctype.h>
+#include <libgen.h>        // basename
 
 #include "usart_defs.h"
 #include "util_posix.h"
@@ -34,9 +35,10 @@
 #include "flash.h"
 #include "preferences.h"
 
-#define BANNERMSG1 "    :snowflake:  iceman@icesql.net"
-#define BANNERMSG2 "   https://github.com/rfidresearchgroup/proxmark3/"
-#define BANNERMSG3 " bleeding edge :coffee:"
+#ifndef LIBPM3
+#define BANNERMSG1 "      Iceman :coffee:"
+#define BANNERMSG2 "  :snowflake: bleeding edge"
+#define BANNERMSG3 "  https://github.com/rfidresearchgroup/proxmark3/"
 
 typedef enum LogoMode { UTF8, ANSI, ASCII } LogoMode;
 
@@ -58,11 +60,11 @@ static void showBanner_logo(LogoMode mode) {
                           sq, sq, tl, hl, hl, sq, sq, tr, sq, sq, sq, sq, tr, __, sq, sq, sq, sq, vl, bl, hl, hl, hl, sq, sq, tr);
             PrintAndLogEx(NORMAL, "  " _BLUE_("%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s"),
                           sq, sq, sq, sq, sq, sq, tl, br, sq, sq, tl, sq, sq, sq, sq, tl, sq, sq, vl, __, sq, sq, sq, sq, tl, br);
-            PrintAndLogEx(NORMAL, "  " _BLUE_("%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s")" " BANNERMSG1,
+            PrintAndLogEx(NORMAL, "  " _BLUE_("%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s"),
                           sq, sq, tl, hl, hl, hl, br, __, sq, sq, vl, bl, sq, sq, tl, br, sq, sq, vl, __, bl, hl, hl, sq, sq, tr);
-            PrintAndLogEx(NORMAL, "  " _BLUE_("%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s")" " BANNERMSG2,
+            PrintAndLogEx(NORMAL, "  " _BLUE_("%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s")" " BANNERMSG1,
                           sq, sq, vl, __, __, __, __, __, sq, sq, vl, __, bl, hl, br, __, sq, sq, vl, sq, sq, sq, sq, sq, tl, br);
-            PrintAndLogEx(NORMAL, "  " _BLUE_("%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s")" " BANNERMSG3,
+            PrintAndLogEx(NORMAL, "  " _BLUE_("%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s")" " BANNERMSG2,
                           bl, hl, br, __, __, __, __, __, bl, hl, br, __, __, __, __, __, bl, hl, br, bl, hl, hl, hl, hl, br, __);
             break;
         }
@@ -70,21 +72,23 @@ static void showBanner_logo(LogoMode mode) {
             PrintAndLogEx(NORMAL, "  " _BLUE_("██████╗ ███╗   ███╗█████╗ "));
             PrintAndLogEx(NORMAL, "  " _BLUE_("██╔══██╗████╗ ████║╚═══██╗"));
             PrintAndLogEx(NORMAL, "  " _BLUE_("██████╔╝██╔████╔██║ ████╔╝"));
-            PrintAndLogEx(NORMAL, "  " _BLUE_("██╔═══╝ ██║╚██╔╝██║ ╚══██╗") " " BANNERMSG1);
-            PrintAndLogEx(NORMAL, "  " _BLUE_("██║     ██║ ╚═╝ ██║█████╔╝") " " BANNERMSG2);
-            PrintAndLogEx(NORMAL, "  " _BLUE_("╚═╝     ╚═╝     ╚═╝╚════╝ ") " " BANNERMSG3);
+            PrintAndLogEx(NORMAL, "  " _BLUE_("██╔═══╝ ██║╚██╔╝██║ ╚══██╗"));
+            PrintAndLogEx(NORMAL, "  " _BLUE_("██║     ██║ ╚═╝ ██║█████╔╝") " " BANNERMSG1);
+            PrintAndLogEx(NORMAL, "  " _BLUE_("╚═╝     ╚═╝     ╚═╝╚════╝ ") " " BANNERMSG2);
             break;
         }
         case ASCII: {
             PrintAndLogEx(NORMAL, "  ######. ###.   ###.#####. ");
             PrintAndLogEx(NORMAL, "  ##...##.####. ####. ...##.");
             PrintAndLogEx(NORMAL, "  ######..##.####.##. ####..");
-            PrintAndLogEx(NORMAL, "  ##..... ##..##..##.  ..##." " " BANNERMSG1);
-            PrintAndLogEx(NORMAL, "  ##.     ##.  .. ##.#####.." " " BANNERMSG2);
-            PrintAndLogEx(NORMAL, "   ..      ..      .. ..... " " " BANNERMSG3);
+            PrintAndLogEx(NORMAL, "  ##..... ##..##..##.  ..##.");
+            PrintAndLogEx(NORMAL, "  ##.     ##.  .. ##.#####.. " BANNERMSG1);
+            PrintAndLogEx(NORMAL, "   ..      ..      .. ..... " BANNERMSG2);
             break;
         }
     }
+    PrintAndLogEx(NORMAL, "");
+    PrintAndLogEx(NORMAL, BANNERMSG3);
 }
 
 static void showBanner(void) {
@@ -106,11 +110,12 @@ static void showBanner(void) {
 #endif
 //    PrintAndLogEx(NORMAL, "\nSupport iceman on patreon - https://www.patreon.com/iceman1001/");
 //    PrintAndLogEx(NORMAL, "                 on paypal - https://www.paypal.me/iceman1001");
-//    printf("\nMonero: 43mNJLpgBVaTvyZmX9ajcohpvVkaRy1kbZPm8tqAb7itZgfuYecgkRF36rXrKFUkwEGeZedPsASRxgv4HPBHvJwyJdyvQuP");
+//    PrintAndLogEx(NORMAL, "\nMonero: 43mNJLpgBVaTvyZmX9ajcohpvVkaRy1kbZPm8tqAb7itZgfuYecgkRF36rXrKFUkwEGeZedPsASRxgv4HPBHvJwyJdyvQuP");
     PrintAndLogEx(NORMAL, "");
     fflush(stdout);
     g_printAndLog = PRINTANDLOG_PRINT | PRINTANDLOG_LOG;
 }
+#endif //LIBPM3
 
 static const char *prompt_dev = "";
 static const char *prompt_ctx = "";
@@ -132,20 +137,18 @@ static int check_comm(void) {
         rl_set_prompt(prompt_filtered);
         rl_forced_update_display();
 #endif
-        CloseProxmark();
+        CloseProxmark(session.current_device);
     }
+    msleep(10);
     return 0;
 }
-static void flush_history(void) {
 #ifdef HAVE_READLINE
+static void flush_history(void) {
     if (session.history_path) {
         write_history(session.history_path);
         free(session.history_path);
     }
-#endif
 }
-
-#ifdef HAVE_READLINE
 
 #  if defined(_WIN32)
 /*
@@ -214,6 +217,7 @@ main_loop(char *script_cmds_file, char *script_cmd, bool stayInCommandLoop) {
 
     char *cmd = NULL;
     bool execCommand = (script_cmd != NULL);
+    bool fromInteractive = false;
     uint16_t script_cmd_len = 0;
     if (execCommand) {
         script_cmd_len = strlen(script_cmd);
@@ -245,22 +249,26 @@ main_loop(char *script_cmds_file, char *script_cmd, bool stayInCommandLoop) {
 
 #ifdef HAVE_READLINE
     session.history_path = NULL;
-    if (searchHomeFilePath(&session.history_path, NULL, PROXHISTORY, true) != PM3_SUCCESS) {
-        PrintAndLogEx(ERR, "No history will be recorded");
-        session.history_path = NULL;
+    if (session.incognito) {
+        PrintAndLogEx(INFO, "No history will be recorded");
     } else {
+        if (searchHomeFilePath(&session.history_path, NULL, PROXHISTORY, true) != PM3_SUCCESS) {
+            PrintAndLogEx(ERR, "No history will be recorded");
+            session.history_path = NULL;
+        } else {
 
 #  if defined(_WIN32)
-//        SetConsoleCtrlHandler((PHANDLER_ROUTINE)terminate_handler, true);
+            //        SetConsoleCtrlHandler((PHANDLER_ROUTINE)terminate_handler, true);
 #  else
-        struct sigaction action;
-        memset(&action, 0, sizeof(action));
-        action.sa_handler = &terminate_handler;
-        sigaction(SIGINT, &action, &old_action);
+            struct sigaction action;
+            memset(&action, 0, sizeof(action));
+            action.sa_handler = &terminate_handler;
+            sigaction(SIGINT, &action, &old_action);
 #  endif
-        rl_catch_signals = 1;
-        rl_set_signals();
-        read_history(session.history_path);
+            rl_catch_signals = 1;
+            rl_set_signals();
+            read_history(session.history_path);
+        }
     }
 #endif
 
@@ -302,10 +310,10 @@ check_script:
         } else {
             // If there is a script command
             if (execCommand) {
-                prompt_ctx = PROXPROMPT_CTX_SCRIPTCMD;
+                prompt_ctx = stdinOnPipe ? PROXPROMPT_CTX_STDIN : PROXPROMPT_CTX_SCRIPTCMD;
 
                 cmd = str_dup(script_cmd);
-                if (cmd != NULL)
+                if ((cmd != NULL) && (! fromInteractive))
                     printprompt = true;
 
                 uint16_t len = strlen(script_cmd) + 1;
@@ -322,8 +330,6 @@ check_script:
 
                 // if there is a pipe from stdin
                 if (stdinOnPipe) {
-                    prompt_ctx = PROXPROMPT_CTX_STDIN;
-
                     // clear array
                     memset(script_cmd_buf, 0, sizeof(script_cmd_buf));
                     // get
@@ -331,13 +337,15 @@ check_script:
                         PrintAndLogEx(ERR, "STDIN unexpected end, exit...");
                         break;
                     }
+                    execCommand = true;
+                    stayInCommandLoop = true;
+                    fromInteractive = false;
+                    script_cmd = script_cmd_buf;
+                    script_cmd_len = strlen(script_cmd);
+                    strcreplace(script_cmd, script_cmd_len, ';', '\0');
                     // remove linebreaks
-                    strcleanrn(script_cmd_buf, sizeof(script_cmd_buf));
-
-                    cmd = str_dup(script_cmd_buf);
-                    if (cmd != NULL)
-                        printprompt = true;
-
+                    strcleanrn(script_cmd, script_cmd_len);
+                    goto check_script;
                 } else {
 #ifdef HAVE_READLINE
                     rl_event_hook = check_comm;
@@ -349,8 +357,19 @@ check_script:
                     prompt_compose(prompt, sizeof(prompt), prompt_ctx, prompt_dev);
                     char prompt_filtered[PROXPROMPT_MAX_SIZE] = {0};
                     memcpy_filter_ansi(prompt_filtered, prompt, sizeof(prompt_filtered), !session.supports_colors);
+                    g_pendingPrompt = true;
 #ifdef HAVE_READLINE
-                    cmd = readline(prompt_filtered);
+                    script_cmd = readline(prompt_filtered);
+                    if (script_cmd != NULL) {
+                        execCommand = true;
+                        stayInCommandLoop = true;
+                        fromInteractive = true;
+                        script_cmd_len = strlen(script_cmd);
+                        strcreplace(script_cmd, script_cmd_len, ';', '\0');
+                        // remove linebreaks
+                        strcleanrn(script_cmd, script_cmd_len);
+                        goto check_script;
+                    }
 #else
                     printf("%s", prompt_filtered);
                     cmd = NULL;
@@ -411,6 +430,7 @@ check_script:
                 }
 #endif
                 // process cmd
+                g_pendingPrompt = false;
                 int ret = CommandReceived(cmd);
                 // exit or quit
                 if (ret == PM3_EFATAL)
@@ -446,16 +466,19 @@ check_script:
     }
 }
 
-static void dumpAllHelp(int markdown) {
+#ifndef LIBPM3
+static void dumpAllHelp(int markdown, bool full_help) {
     session.help_dump_mode = true;
     PrintAndLogEx(NORMAL, "\n%sProxmark3 command dump%s\n\n", markdown ? "# " : "", markdown ? "" : "\n======================");
     PrintAndLogEx(NORMAL, "Some commands are available only if a Proxmark3 is actually connected.%s\n", markdown ? "  " : "");
     PrintAndLogEx(NORMAL, "Check column \"offline\" for their availability.\n");
     PrintAndLogEx(NORMAL, "\n");
     command_t *cmds = getTopLevelCommandTable();
-    dumpCommandsRecursive(cmds, markdown);
+    dumpCommandsRecursive(cmds, markdown, full_help);
     session.help_dump_mode = false;
+    PrintAndLogEx(NORMAL, "Full help dump done.");
 }
+#endif //LIBPM3
 
 static char *my_executable_path = NULL;
 static char *my_executable_directory = NULL;
@@ -496,7 +519,7 @@ static void set_my_user_directory(void) {
         // if not found, default to current directory
         if (my_user_directory == NULL) {
             my_user_directory = GetCurrentDir(_cwd_Buffer, sizeof(_cwd_Buffer));
-            // change all slashs to / (windows should not care...
+            // change all slashes to / (windows should not care...
             for (int i = 0; i < strlen(_cwd_Buffer); i++)
                 if (_cwd_Buffer[i] == '\\') _cwd_Buffer[i] = '/';
             //      my_user_directory = ".";
@@ -508,10 +531,13 @@ static void set_my_user_directory(void) {
     if (my_user_directory == NULL) {
 
         uint16_t pathLen = FILENAME_MAX; // should be a good starting point
-        bool error = false;
         char *cwd_buffer = (char *)calloc(pathLen, sizeof(uint8_t));
+        if (cwd_buffer == NULL) {
+            PrintAndLogEx(WARNING, "failed to allocate memory");
+            return;
+        }
 
-        while (!error && (GetCurrentDir(cwd_buffer, pathLen) == NULL)) {
+        while (GetCurrentDir(cwd_buffer, pathLen) == NULL) {
             if (errno == ERANGE) {  // Need bigger buffer
                 pathLen += 10;      // if buffer was too small add 10 characters and try again
                 char *tmp = realloc(cwd_buffer, pathLen);
@@ -527,22 +553,20 @@ static void set_my_user_directory(void) {
             }
         }
 
-        if (!error) {
-
-            for (int i = 0; i < strlen(cwd_buffer); i++) {
-                if (cwd_buffer[i] == '\\') {
-                    cwd_buffer[i] = '/';
-                }
+        for (int i = 0; i < strlen(cwd_buffer); i++) {
+            if (cwd_buffer[i] == '\\') {
+                cwd_buffer[i] = '/';
             }
-
-            my_user_directory = cwd_buffer;
         }
+
+        my_user_directory = cwd_buffer;
     }
 }
 
+#ifndef LIBPM3
 static void show_help(bool showFullHelp, char *exec_name) {
 
-    PrintAndLogEx(NORMAL, "\nsyntax: %s [-h|-t|-m]", exec_name);
+    PrintAndLogEx(NORMAL, "\nsyntax: %s [-h|-t|-m|--fulltext]", exec_name);
     PrintAndLogEx(NORMAL, "        %s [[-p] <port>] [-b] [-w] [-f] [-c <command>]|[-l <lua_script_file>]|[-s <cmd_script_file>] [-i] [-d <0|1|2>]", exec_name);
     PrintAndLogEx(NORMAL, "        %s [-p] <port> --flash [--unlock-bootloader] [--image <imagefile>]+ [-w] [-f] [-d <0|1|2>]", exec_name);
 
@@ -556,13 +580,15 @@ static void show_help(bool showFullHelp, char *exec_name) {
         PrintAndLogEx(NORMAL, "      -f/--flush                          output will be flushed after every print");
         PrintAndLogEx(NORMAL, "      -d/--debug <0|1|2>                  set debugmode");
         PrintAndLogEx(NORMAL, "\nOptions in client mode:");
-        PrintAndLogEx(NORMAL, "      -t/--text                           dump all interactive command's help at once");
-        PrintAndLogEx(NORMAL, "      -m/--markdown                       dump all interactive help at once in markdown syntax");
+        PrintAndLogEx(NORMAL, "      -t/--text                           dump all interactive command list at once");
+        PrintAndLogEx(NORMAL, "      --fulltext                          dump all interactive command's help at once");
+        PrintAndLogEx(NORMAL, "      -m/--markdown                       dump all interactive command list at once in markdown syntax");
         PrintAndLogEx(NORMAL, "      -b/--baud                           serial port speed (only needed for physical UART, not for USB-CDC or BT)");
         PrintAndLogEx(NORMAL, "      -c/--command <command>              execute one Proxmark3 command (or several separated by ';').");
         PrintAndLogEx(NORMAL, "      -l/--lua <lua script file>          execute lua script.");
         PrintAndLogEx(NORMAL, "      -s/--script-file <cmd_script_file>  script file with one Proxmark3 command per line");
         PrintAndLogEx(NORMAL, "      -i/--interactive                    enter interactive mode after executing the script or the command");
+        PrintAndLogEx(NORMAL, "      --incognito                         do not use history, prefs file nor log files");
         PrintAndLogEx(NORMAL, "\nOptions in flasher mode:");
         PrintAndLogEx(NORMAL, "      --flash                             flash Proxmark3, requires at least one --image");
         PrintAndLogEx(NORMAL, "      --unlock-bootloader                 Enable flashing of bootloader area *DANGEROUS* (need --flash or --flash-info)");
@@ -574,8 +600,8 @@ static void show_help(bool showFullHelp, char *exec_name) {
         PrintAndLogEx(NORMAL, "      %s "SERIAL_PORT_EXAMPLE_H" -w                    -- wait for serial port", exec_name);
         PrintAndLogEx(NORMAL, "      %s                                    -- runs the pm3 client in OFFLINE mode", exec_name);
         PrintAndLogEx(NORMAL, "\n  to execute different commands from terminal:\n");
-        PrintAndLogEx(NORMAL, "      %s "SERIAL_PORT_EXAMPLE_H" -c \"hf mf chk 1* ?\"   -- execute cmd and quit client", exec_name);
-        PrintAndLogEx(NORMAL, "      %s "SERIAL_PORT_EXAMPLE_H" -l hf_read            -- execute lua script " _YELLOW_("`hf_read`")" and quit client", exec_name);
+        PrintAndLogEx(NORMAL, "      %s "SERIAL_PORT_EXAMPLE_H" -c \"hf mf chk --1k\"   -- execute cmd and quit client", exec_name);
+        PrintAndLogEx(NORMAL, "      %s "SERIAL_PORT_EXAMPLE_H" -l hf_read            -- execute lua script `hf_read` and quit client", exec_name);
         PrintAndLogEx(NORMAL, "      %s "SERIAL_PORT_EXAMPLE_H" -s mycmds.txt         -- execute each pm3 cmd in file and quit client", exec_name);
         PrintAndLogEx(NORMAL, "\n  to flash fullimage and bootloader:\n");
         PrintAndLogEx(NORMAL, "      %s "SERIAL_PORT_EXAMPLE_H" --flash --unlock-bootloader --image bootrom.elf --image fullimage.elf", exec_name);
@@ -624,7 +650,7 @@ static int flash_pm3(char *serial_port_name, uint8_t num_files, char *filenames[
         PrintAndLogEx(SUCCESS, "   "_YELLOW_("%s"), filepaths[i]);
     }
 
-    if (OpenProxmark(serial_port_name, true, 60, true, FLASHMODE_SPEED)) {
+    if (OpenProxmark(&session.current_device, serial_port_name, true, 60, true, FLASHMODE_SPEED)) {
         PrintAndLogEx(NORMAL, _GREEN_(" found"));
     } else {
         PrintAndLogEx(ERR, "Could not find Proxmark3 on " _RED_("%s") ".\n", serial_port_name);
@@ -661,8 +687,10 @@ static int flash_pm3(char *serial_port_name, uint8_t num_files, char *filenames[
     }
 
 finish:
+    if (ret != PM3_SUCCESS)
+        PrintAndLogEx(INFO, "The flashing procedure failed, follow the suggested steps!");
     ret = flash_stop_flashing();
-    CloseProxmark();
+    CloseProxmark(session.current_device);
 finish2:
     for (int i = 0 ; i < num_files; ++i) {
         if (filepaths[i] != NULL)
@@ -672,75 +700,46 @@ finish2:
         PrintAndLogEx(SUCCESS, _CYAN_("All done"));
     else
         PrintAndLogEx(ERR, "Aborted on error");
-    PrintAndLogEx(NORMAL, "\nHave a nice day!");
+    PrintAndLogEx(INFO, "\nHave a nice day!");
     return ret;
 }
-
-// Check if windows AnsiColor Support is enabled in the registery
-// [HKEY_CURRENT_USER\Console]
-//     "VirtualTerminalLevel"=dword:00000001
-// 2nd Key needs to be enabled...  This key takes the console out of legacy mode.
-// [HKEY_CURRENT_USER\Console]
-//     "ForceV2"=dword:00000001
+#endif //LIBPM3
 
 #if defined(_WIN32)
 static bool DetectWindowsAnsiSupport(void) {
-    HKEY hKey = NULL;
-    bool virtualTerminalLevelSet = false;
-    bool forceV2Set = false;
-
-    if (RegOpenKeyA(HKEY_CURRENT_USER, "Console", &hKey) == ERROR_SUCCESS) {
-        DWORD dwType = REG_SZ;
-        BYTE KeyValue[sizeof(dwType)];
-        DWORD len = sizeof(KeyValue);
-
-        if (RegQueryValueEx(hKey, "VirtualTerminalLevel", NULL, &dwType, KeyValue, &len) != ERROR_FILE_NOT_FOUND) {
-            uint8_t i;
-            uint32_t Data = 0;
-            for (i = 0; i < 4; i++)
-                Data += KeyValue[i] << (8 * i);
-
-            if (Data == 1) { // Reg key is set to 1, Ansi Color Enabled
-                virtualTerminalLevelSet = true;
-            }
-        }
-        RegCloseKey(hKey);
-    }
-
-    if (RegOpenKeyA(HKEY_CURRENT_USER, "Console", &hKey) == ERROR_SUCCESS) {
-        DWORD dwType = REG_SZ;
-        BYTE KeyValue[sizeof(dwType)];
-        DWORD len = sizeof(KeyValue);
-
-        if (RegQueryValueEx(hKey, "ForceV2", NULL, &dwType, KeyValue, &len) != ERROR_FILE_NOT_FOUND) {
-            uint8_t i;
-            uint32_t Data = 0;
-            for (i = 0; i < 4; i++)
-                Data += KeyValue[i] << (8 * i);
-
-            if (Data == 1) { // Reg key is set to 1, Not using legacy Mode.
-                forceV2Set = true;
-            }
-        }
-        RegCloseKey(hKey);
-    }
+#ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
+#define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+#endif
 
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
     DWORD dwMode = 0;
     GetConsoleMode(hOut, &dwMode);
     dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-    SetConsoleMode(hOut, dwMode);
 
-    // If both VirtualTerminalLevel and ForceV2 is set, AnsiColor should work
-    return virtualTerminalLevelSet && forceV2Set;
+    return SetConsoleMode(hOut, dwMode) ? true : false;
 }
-#endif
+#endif //_WIN32
 
-int main(int argc, char *argv[]) {
+void pm3_init(void) {
     srand(time(0));
 
     session.pm3_present = false;
     session.help_dump_mode = false;
+    session.incognito = false;
+    session.supports_colors = false;
+    session.emoji_mode = EMO_ALTTEXT;
+    session.stdinOnTTY = false;
+    session.stdoutOnTTY = false;
+
+    // set global variables soon enough to get the log path
+    set_my_executable_path();
+    set_my_user_directory();
+
+}
+
+#ifndef LIBPM3
+int main(int argc, char *argv[]) {
+    pm3_init();
     bool waitCOMPort = false;
     bool addLuaExec = false;
     bool stayInCommandLoop = false;
@@ -758,25 +757,14 @@ int main(int argc, char *argv[]) {
 #endif // RL_STATE_READCMD
 #endif // HAVE_READLINE
 
-    char *exec_name = argv[0];
-#if defined(_WIN32)
-    for (int m = strlen(exec_name); m > 0; m--) {
-        if (exec_name[m] == '\\') {
-            exec_name += (++m);
-            break;
-        }
-    }
-#endif
+    char exec_name[100] = {0};
+    strncpy(exec_name, basename(argv[0]), sizeof(exec_name) - 1);
 
     bool flash_mode = false;
     bool flash_can_write_bl = false;
     bool debug_mode_forced = false;
     int flash_num_files = 0;
     char *flash_filenames[FLASH_MAX_FILES];
-
-    // set global variables soon enough to get the log path
-    set_my_executable_path();
-    set_my_user_directory();
 
     // color management:
     // 1. default = no color
@@ -790,14 +778,11 @@ int main(int argc, char *argv[]) {
     session.stdinOnTTY = isatty(STDIN_FILENO);
     session.stdoutOnTTY = isatty(STDOUT_FILENO);
     session.supports_colors = false;
-    session.emoji_mode = ALTTEXT;
+    session.emoji_mode = EMO_ALTTEXT;
     if (session.stdinOnTTY && session.stdoutOnTTY) {
 #if defined(__linux__) || defined(__APPLE__)
         session.supports_colors = true;
-        session.emoji_mode = EMOJI;
-#elif defined(_WIN32)
-        session.supports_colors = DetectWindowsAnsiSupport();
-        session.emoji_mode = ALTTEXT;
+        session.emoji_mode = EMO_EMOJI;
 #endif
     }
     for (int i = 1; i < argc; i++) {
@@ -842,14 +827,22 @@ int main(int argc, char *argv[]) {
         if (strcmp(argv[i], "-t") == 0 || strcmp(argv[i], "--text") == 0) {
             g_printAndLog = PRINTANDLOG_PRINT;
             show_help(false, exec_name);
-            dumpAllHelp(0);
+            dumpAllHelp(0, false);
+            return 0;
+        }
+
+        // dump help
+        if (strcmp(argv[i], "--fulltext") == 0) {
+            g_printAndLog = PRINTANDLOG_PRINT;
+            show_help(false, exec_name);
+            dumpAllHelp(0, true);
             return 0;
         }
 
         // dump markup
         if (strcmp(argv[i], "-m") == 0 || strcmp(argv[i], "--markdown") == 0) {
             g_printAndLog = PRINTANDLOG_PRINT;
-            dumpAllHelp(1);
+            dumpAllHelp(1, false);
             return 0;
         }
         // print client version
@@ -919,7 +912,7 @@ int main(int argc, char *argv[]) {
 
         // execute pm3 command file
         if (strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--script-file") == 0) {
-            if (i + 1 == argc) {
+            if (i + 1 == argc || strlen(argv[i + 1]) == 0) {
                 PrintAndLogEx(ERR, _RED_("ERROR:") " missing script file specification after -s\n");
                 show_help(false, exec_name);
                 return 1;
@@ -930,19 +923,28 @@ int main(int argc, char *argv[]) {
 
         // execute lua script
         if (strcmp(argv[i], "-l") == 0 || strcmp(argv[i], "--lua") == 0) {
-            addLuaExec = true;
-            if (i + 1 == argc) {
+            if (i + 1 == argc || strlen(argv[i + 1]) == 0) {
                 PrintAndLogEx(ERR, _RED_("ERROR:") " missing lua script specification after -l\n");
                 show_help(false, exec_name);
                 return 1;
             }
             script_cmd = argv[++i];
+            if (script_cmd == NULL || strlen(script_cmd) == 0) {
+                return 1;
+            }
+            addLuaExec = true;
             continue;
         }
 
         // go to interactive instead of quitting after a script/command
         if (strcmp(argv[i], "-i") == 0 || strcmp(argv[i], "--interactive") == 0) {
             stayInCommandLoop = true;
+            continue;
+        }
+
+        // do not use history nor log files
+        if (strcmp(argv[i], "--incognito") == 0) {
+            session.incognito = true;
             continue;
         }
 
@@ -991,8 +993,13 @@ int main(int argc, char *argv[]) {
     // even if prefs, we disable colors if stdin or stdout is not a TTY
     if ((! session.stdinOnTTY) || (! session.stdoutOnTTY)) {
         session.supports_colors = false;
-        session.emoji_mode = ALTTEXT;
+        session.emoji_mode = EMO_ALTTEXT;
     }
+
+#if defined(_WIN32) //Color support on Windows has to be enabled each time and can fail, override prefs
+    session.supports_colors = DetectWindowsAnsiSupport();
+    session.emoji_mode = EMO_ALTTEXT;
+#endif
 
     // Let's take a baudrate ok for real UART, USB-CDC & BT don't use that info anyway
     if (speed == 0)
@@ -1030,12 +1037,12 @@ int main(int argc, char *argv[]) {
 
     // try to open USB connection to Proxmark
     if (port != NULL) {
-        OpenProxmark(port, waitCOMPort, 20, false, speed);
+        OpenProxmark(&session.current_device, port, waitCOMPort, 20, false, speed);
     }
 
-    if (session.pm3_present && (TestProxmark() != PM3_SUCCESS)) {
+    if (session.pm3_present && (TestProxmark(session.current_device) != PM3_SUCCESS)) {
         PrintAndLogEx(ERR, _RED_("ERROR:") " cannot communicate with the Proxmark\n");
-        CloseProxmark();
+        CloseProxmark(session.current_device);
     }
 
     if ((port != NULL) && (!session.pm3_present))
@@ -1051,7 +1058,7 @@ int main(int argc, char *argv[]) {
     // Save settings if not loaded from settings json file.
     // Doing this here will ensure other checks and updates are saved to over rule default
     // e.g. Linux color use check
-    if (!session.preferences_loaded) {
+    if ((!session.preferences_loaded) && (!session.incognito)) {
         PrintAndLogEx(INFO, "Creating initial preferences file");  // json save reports file name, so just info msg here
         preferences_save();  // Save defaults
         session.preferences_loaded = true;
@@ -1075,7 +1082,7 @@ int main(int argc, char *argv[]) {
     InitGraphics(argc, argv, script_cmds_file, script_cmd, stayInCommandLoop);
     MainGraphics();
 #  else
-    // for *nix distro's,  check enviroment variable to verify a display
+    // for *nix distro's,  check environment variable to verify a display
     char *display = getenv("DISPLAY");
     if (display && strlen(display) > 1) {
         InitGraphics(argc, argv, script_cmds_file, script_cmd, stayInCommandLoop);
@@ -1091,10 +1098,11 @@ int main(int argc, char *argv[]) {
 
     // Clean up the port
     if (session.pm3_present) {
-        CloseProxmark();
+        CloseProxmark(session.current_device);
     }
 
     if (session.window_changed) // Plot/Overlay moved or resized
         preferences_save();
     exit(EXIT_SUCCESS);
 }
+#endif //LIBPM3

@@ -73,7 +73,7 @@ git clone https://github.com/RfidResearchGroup/proxmark3.git
 # Check ModemManager
 
 ### ⚠️ Very important ⚠️
-make sure ModemManager will not interfer, otherwise it could brick your Proxmark3!
+make sure ModemManager will not interfere, otherwise it could brick your Proxmark3!
 Read carefully [this page about ModemManager](ModemManager-Must-Be-Discarded.md) and follow its instructions.
 
 # Check connection
@@ -107,7 +107,7 @@ To test you have the proper read & write rights, plug the Proxmark3 and execute:
 ```sh
 [ -r /dev/ttyACM0 ] && [ -w /dev/ttyACM0 ] && echo ok
 ```
-It must return `ok`. Otherwise this means you've a permissions problem to fix.
+It must return `ok`. Otherwise this means you've got a permission problem to fix.
 
 # Compile and use the project
 

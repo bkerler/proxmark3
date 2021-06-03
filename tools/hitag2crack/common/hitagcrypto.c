@@ -188,7 +188,7 @@
 
    HITAG 2            256 Bit total memory        Read/Write
                       8 pages of 32 bits, inc UID (32),
-		      secret key (64), password (24), config (8)
+              secret key (64), password (24), config (8)
 
    HITAG S 32         32 bits Unique Identifier   Read Only
    HITAG S 256        256 bits total memory       Read/Write
@@ -208,7 +208,9 @@
 
 // We want the crypto functions to be as fast as possible, so optimize!
 // The best compiler optimization in Microchip's free XC32 edition is -O1
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC optimize("O1")
+#endif
 
 // private, nonlinear function to generate 1 crypto bit
 static uint32_t hitag2_crypt(uint64_t x);
@@ -227,9 +229,9 @@ static uint32_t hitag2_crypt(uint64_t x);
 
 
 static uint32_t hitag2_crypt(uint64_t x) {
-    const uint32_t ht2_function4a = 0x2C79;	// 0010 1100 0111 1001
-    const uint32_t ht2_function4b = 0x6671;	// 0110 0110 0111 0001
-    const uint32_t ht2_function5c = 0x7907287B;	// 0111 1001 0000 0111 0010 1000 0111 1011
+    const uint32_t ht2_function4a = 0x2C79; // 0010 1100 0111 1001
+    const uint32_t ht2_function4b = 0x6671; // 0110 0110 0111 0001
+    const uint32_t ht2_function5c = 0x7907287B; // 0111 1001 0000 0111 0010 1000 0111 1011
     uint32_t bitindex;
 
     bitindex = (ht2_function4a >> pickbits2_2(x, 1, 4)) & 1;
@@ -367,4 +369,6 @@ uint32_t hitag2_nstep(Hitag_State *pstate, uint32_t steps) {
 }
 
 // end of crypto core, revert to default optimization level
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC reset_options
+#endif

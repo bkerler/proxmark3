@@ -23,6 +23,7 @@
 
 extern uint8_t g_debugMode;
 extern uint8_t g_printAndLog;
+extern bool g_pendingPrompt;
 
 #define PRINTANDLOG_PRINT 1
 #define PRINTANDLOG_LOG   2
@@ -49,14 +50,19 @@ char *sprint_hex_ascii(const uint8_t *data, const size_t len);
 char *sprint_ascii(const uint8_t *data, const size_t len);
 char *sprint_ascii_ex(const uint8_t *data, const size_t len, const size_t min_str_len);
 
+void print_buffer(const uint8_t *data, const size_t len, int level);
 void print_blocks(uint32_t *data, size_t len);
 
 int hex_to_bytes(const char *hexValue, uint8_t *bytesValue, size_t maxBytesValueLen);
 void num_to_bytebits(uint64_t n, size_t len, uint8_t *dest);
 void num_to_bytebitsLSBF(uint64_t n, size_t len, uint8_t *dest);
+void bytes_to_bytebits(void *src, size_t srclen, void *dest);
+
+// Swap endian on arrays up to 64bytes.
 uint8_t *SwapEndian64(const uint8_t *src, const size_t len, const uint8_t blockSize);
 void SwapEndian64ex(const uint8_t *src, const size_t len, const uint8_t blockSize, uint8_t *dest);
 
+// parameter helper functions
 int param_getlength(const char *line, int paramnum);
 char param_getchar(const char *line, int paramnum);
 char param_getchar_indx(const char *line, int indx, int paramnum);
@@ -71,12 +77,15 @@ uint8_t param_isdec(const char *line, int paramnum);
 int param_gethex(const char *line, int paramnum, uint8_t *data, int hexcnt);
 int param_gethex_ex(const char *line, int paramnum, uint8_t *data, int *hexcnt);
 int param_gethex_to_eol(const char *line, int paramnum, uint8_t *data, int maxdatalen, int *datalen);
+int param_getbin_to_eol(const char *line, int paramnum, uint8_t *data, int maxdatalen, int *datalen);
 int param_getstr(const char *line, int paramnum, char *str, size_t buffersize);
 
 int hextobinarray(char *target, char *source);
 int hextobinstring(char *target, char *source);
 int binarraytohex(char *target, const size_t targetlen, char *source, size_t srclen);
 void binarraytobinstring(char *target,  char *source, int length);
+int binstring2binarray(uint8_t *target, char *source, int length);
+
 uint8_t GetParity(uint8_t *bits, uint8_t type, int length);
 void wiegand_add_parity(uint8_t *target, uint8_t *source, uint8_t length);
 void wiegand_add_parity_swapped(uint8_t *target, uint8_t *source, uint8_t length);
@@ -97,4 +106,12 @@ void strcreplace(char *buf, size_t len, char from, char to);
 char *str_dup(const char *src);
 char *str_ndup(const char *src, size_t len);
 int hexstring_to_u96(uint32_t *hi2, uint32_t *hi, uint32_t *lo, const char *str);
+int binstring_to_u96(uint32_t *hi2, uint32_t *hi, uint32_t *lo, const char *str);
+int binarray_to_u96(uint32_t *hi2, uint32_t *hi, uint32_t *lo, uint8_t *arr, int arrlen);
+
+uint32_t bitcount32(uint32_t a);
+uint64_t bitcount64(uint64_t a);
+uint32_t leadingzeros32(uint32_t a);
+uint64_t leadingzeros64(uint64_t a);
+
 #endif

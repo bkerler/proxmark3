@@ -37,6 +37,14 @@ endif
 ifneq (,$(findstring WITH_STANDALONE_HF_14ASNIFF,$(APP_CFLAGS)))
     SRC_STANDALONE = hf_14asniff.c
 endif
+# WITH_STANDALONE_HF_AVEFUL
+ifneq (,$(findstring WITH_STANDALONE_HF_AVEFUL,$(APP_CFLAGS)))
+    SRC_STANDALONE = hf_aveful.c
+endif
+# WITH_STANDALONE_HF_TCPRST
+ifneq (,$(findstring WITH_STANDALONE_HF_TCPRST,$(APP_CFLAGS)))
+    SRC_STANDALONE = hf_tcprst.c
+endif
 # WITH_STANDALONE_LF_ICEHID
 ifneq (,$(findstring WITH_STANDALONE_LF_ICEHID,$(APP_CFLAGS)))
     SRC_STANDALONE = lf_icehid.c
@@ -57,7 +65,23 @@ endif
 ifneq (,$(findstring WITH_STANDALONE_HF_LEGIC,$(APP_CFLAGS)))
    SRC_STANDALONE = hf_legic.c
 endif
-# WITH_STANDALONE_LF_MSDSAL
+# WITH_STANDALONE_HF_MSDSAL
 ifneq (,$(findstring WITH_STANDALONE_HF_MSDSAL,$(APP_CFLAGS)))
     SRC_STANDALONE = hf_msdsal.c
+endif
+# WITH_STANDALONE_HF_ICECLASS
+ifneq (,$(findstring WITH_STANDALONE_HF_ICECLASS,$(APP_CFLAGS)))
+    SRC_STANDALONE = hf_iceclass.c
+endif
+# WITH_STANDALONE_LF_THAREXDE
+ifneq (,$(findstring WITH_STANDALONE_LF_THAREXDE,$(APP_CFLAGS)))
+    SRC_STANDALONE = lf_tharexde.c
+endif
+# WITH_STANDALONE_HF_CRAFTBYTE
+ifneq (,$(findstring WITH_STANDALONE_HF_CRAFTBYTE,$(APP_CFLAGS)))
+    SRC_STANDALONE = hf_craftbyte.c
+endif
+# WITH_STANDALONE_HF_TMUDFORD
+ifneq (,$(findstring WITH_STANDALONE_HF_TMUDFORD,$(APP_CFLAGS)))
+    SRC_STANDALONE = hf_tmudford.c
 endif

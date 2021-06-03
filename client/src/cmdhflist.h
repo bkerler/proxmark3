@@ -18,6 +18,7 @@ typedef struct {
     uint32_t nt_enc;    // encrypted tag challenge
     uint8_t nt_enc_par; // encrypted tag challenge parity
     uint32_t nr_enc;    // encrypted reader challenge
+    uint8_t nr_enc_par; // encrypted reader challenge parity
     uint32_t ar_enc;    // encrypted reader response
     uint8_t ar_enc_par; // encrypted reader response parity
     uint32_t at_enc;    // encrypted tag response
@@ -38,7 +39,7 @@ uint8_t iclass_CRC_check(bool isResponse, uint8_t *d, uint8_t n);
 
 int applyIso14443a(char *exp, size_t size, uint8_t *cmd, uint8_t cmdsize);
 
-void annotateIclass(char *exp, size_t size, uint8_t *cmd, uint8_t cmdsize);
+void annotateIclass(char *exp, size_t size, uint8_t *cmd, uint8_t cmdsize, bool isResponse);
 void annotateIso15693(char *exp, size_t size, uint8_t *cmd, uint8_t cmdsize);
 void annotateTopaz(char *exp, size_t size, uint8_t *cmd, uint8_t cmdsize);
 void annotateLegic(char *exp, size_t size, uint8_t *cmd, uint8_t cmdsize);
@@ -49,8 +50,9 @@ void annotateIso14443a(char *exp, size_t size, uint8_t *cmd, uint8_t cmdsize);
 void annotateMfDesfire(char *exp, size_t size, uint8_t *cmd, uint8_t cmdsize);
 void annotateMifare(char *exp, size_t size, uint8_t *cmd, uint8_t cmdsize, uint8_t *parity, uint8_t paritysize, bool isResponse);
 void annotateLTO(char *exp, size_t size, uint8_t *cmd, uint8_t cmdsize);
+void annotateCryptoRF(char *exp, size_t size, uint8_t *cmd, uint8_t cmdsize);
 
-bool DecodeMifareData(uint8_t *cmd, uint8_t cmdsize, uint8_t *parity, bool isResponse, uint8_t *mfData, size_t *mfDataLen);
+bool DecodeMifareData(uint8_t *cmd, uint8_t cmdsize, uint8_t *parity, bool isResponse, uint8_t *mfData, size_t *mfDataLen, const uint64_t *dicKeys, uint32_t dicKeysCount);
 bool NTParityChk(TAuthData *ad, uint32_t ntx);
 bool NestedCheckKey(uint64_t key, TAuthData *ad, uint8_t *cmd, uint8_t cmdsize, uint8_t *parity);
 bool CheckCrypto1Parity(uint8_t *cmd_enc, uint8_t cmdsize, uint8_t *cmd, uint8_t *parity_enc);

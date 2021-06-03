@@ -122,6 +122,9 @@ static int build_segs_from_phdrs(flash_file_t *ctx, FILE *fd, Elf32_Phdr *phdrs,
         }
         if (paddr < FLASH_START || (paddr + filesz) > flash_end) {
             PrintAndLogEx(ERR, "Error: PHDR is not contained in Flash");
+            if ((paddr + filesz) > flash_end) {
+                PrintAndLogEx(ERR, "Firmware probably too big for your device");
+            }
             return PM3_EFILE;
         }
         if (vaddr >= FLASH_START && vaddr < flash_end && (flags & PF_W)) {
@@ -370,11 +373,11 @@ static int enter_bootloader(char *serial_port_name) {
             PrintAndLogEx(SUCCESS, "Press and hold down button NOW if your bootloader requires it.");
         }
         msleep(100);
-        CloseProxmark();
+        CloseProxmark(session.current_device);
         // Let time to OS to make the port disappear
         msleep(1000);
 
-        if (OpenProxmark(serial_port_name, true, 60, true, FLASHMODE_SPEED)) {
+        if (OpenProxmark(&session.current_device, serial_port_name, true, 60, true, FLASHMODE_SPEED)) {
             PrintAndLogEx(NORMAL, _GREEN_(" found"));
             return PM3_SUCCESS;
         } else {
@@ -400,9 +403,19 @@ static int wait_for_ack(PacketResponseNG *ack) {
     return PM3_SUCCESS;
 }
 
+static bool g_printed_msg = false;
 static void flash_suggest_update_bootloader(void) {
+    if (g_printed_msg)
+        return;
+
     PrintAndLogEx(ERR, _RED_("It is recommended that you first" _YELLOW_(" update your bootloader") _RED_(" alone,")));
     PrintAndLogEx(ERR, _RED_("reboot the Proxmark3 then only update the main firmware") "\n");
+    PrintAndLogEx(ERR, "Follow these steps :");
+    PrintAndLogEx(ERR, " 1)   ./pm3-flash-bootrom");
+    PrintAndLogEx(ERR, " 2)   ./pm3-flash-all");
+    PrintAndLogEx(ERR, " 3)   ./pm3");
+    PrintAndLogEx(INFO, "--------------------------------------------------------");
+    g_printed_msg = true;
 }
 
 static void flash_suggest_update_flasher(void) {
@@ -529,6 +542,7 @@ const char ice[] =
     "        !!: :!!      !!:      !!:     !!: !!:  !!! !!:  !!!\n        :    :: :: : : :: :::  :      :    :   : : ::    : \n"
     _RED_("        .    .. .. . . .. ...  .      .    .   . . ..    . ")
     "\n...................................................................\n"
+    "...................................................................\n"
     ;
 
 // Write a file's segments to Flash

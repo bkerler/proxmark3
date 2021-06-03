@@ -103,8 +103,6 @@ static bool end = false;
 #define HITAG_T_TAG_CAPTURE_THREE_HALF 41
 #define HITAG_T_TAG_CAPTURE_FOUR_HALF  57
 
-#define DBGLEVEL 0
-
 /*
  * Implementation of the crc8 calculation from Hitag S
  * from http://www.proxmark.org/files/Documents/125%20kHz%20-%20Hitag/HitagS.V11.pdf
@@ -1544,7 +1542,7 @@ void WritePageHitagS(hitag_function htf, hitag_data *htd, int page) {
         //check for valid input
         if (page == 0) {
             Dbprintf(
-                "usage: lf hitag writer [03 | 04] [CHALLENGE | KEY] [page] [byte0] [byte1] [byte2] [byte3]");
+                "usage: lf hitag writer [--03 | --04] [--nrar CHALLENGE | -k KEY] [-p page] -d [4 hex bytes]");
             bStop = !false;
         }
 

@@ -30,7 +30,7 @@ SRC_ISO14443b = iso14443b.c
 SRC_FELICA = felica.c
 SRC_CRAPTO1 = crypto1.c des.c desfire_crypto.c mifaredesfire.c aes.c platform_util.c
 SRC_CRC = crc.c crc16.c crc32.c
-SRC_ICLASS = iclass.c optimized_cipher.c
+SRC_ICLASS = iclass.c optimized_cipherutils.c optimized_ikeys.c optimized_elite.c optimized_cipher.c
 SRC_LEGIC = legicrf.c legicrfsim.c legic_prng.c
 SRC_NFCBARCODE = thinfilm.c
 
@@ -69,6 +69,12 @@ else
 	SRC_EM4x50 =
 endif
 
+ifneq (,$(findstring WITH_EM4x70,$(APP_CFLAGS)))
+	SRC_EM4x70 = em4x70.c
+else
+	SRC_EM4x70 =
+endif
+
 ifneq (,$(findstring WITH_LCD,$(APP_CFLAGS)))
     SRC_LCD = fonts.c LCD.c
 else
@@ -79,7 +85,7 @@ endif
 include Standalone/Makefile.inc
 
 #the FPGA bitstream files. Note: order matters!
-FPGA_BITSTREAMS = fpga_lf.bit fpga_hf.bit
+FPGA_BITSTREAMS = fpga_lf.bit fpga_hf.bit fpga_felica.bit
 
 #the lz4 source files required for decompressing the fpga config at run time
 SRC_LZ4 = lz4.c
@@ -106,6 +112,7 @@ THUMBSRC = start.c \
     $(SRC_FPC) \
     $(SRC_HITAG) \
 	$(SRC_EM4x50) \
+    $(SRC_EM4x70) \
     $(SRC_SPIFFS) \
     $(SRC_ISO14443a) \
     $(SRC_ISO14443b) \
@@ -133,7 +140,7 @@ ARMSRC = fpgaloader.c \
     usb_cdc.c \
     cmd.c
 
-VERSIONSRC = version.c \
+VERSIONSRC = version_pm3.c \
     fpga_version_info.c
 
 # Do not move this inclusion before the definition of {THUMB,ASM,ARM}SRC
@@ -156,8 +163,8 @@ showinfo:
 
 .DELETE_ON_ERROR:
 
-# version.c should be remade on every time fullimage.stage1.elf should be remade
-version.c: default_version.c $(OBJDIR)/fpga_version_info.o $(OBJDIR)/fpga_all.o $(THUMBOBJ) $(ARMOBJ)
+# version_pm3.c should be remade on every time fullimage.stage1.elf should be remade
+version_pm3.c: default_version_pm3.c $(OBJDIR)/fpga_version_info.o $(OBJDIR)/fpga_all.o $(THUMBOBJ) $(ARMOBJ)
 	$(info [-] GEN $@)
 	$(Q)$(SH) ../tools/mkversion.sh > $@ || $(PERL) ../tools/mkversion.pl > $@ || $(CP) $< $@
 
@@ -210,8 +217,12 @@ $(OBJDIR)/fullimage.data.o: $(OBJDIR)/fullimage.data.bin.z
 	$(Q)$(OBJCOPY) -O elf32-littlearm -I binary -B arm --rename-section .data=compressed_data $^ $@
 
 $(OBJDIR)/fullimage.elf: $(OBJDIR)/fullimage.nodata.o $(OBJDIR)/fullimage.data.o
+ifeq (,$(findstring WITH_NO_COMPRESSION,$(APP_CFLAGS)))
 	$(info [=] LD $@)
 	$(Q)$(CC) $(CROSS_LDFLAGS) -Wl,-T,ldscript,-e,_osimage_entry,-Map,$(patsubst %.elf,%.map,$@) -o $@ $^
+else
+	$(Q)$(CP) $(OBJDIR)/fullimage.stage1.elf $@
+endif
 
 tarbin: $(OBJS)
 	$(info TAR $@)
@@ -226,7 +237,7 @@ clean:
 	$(Q)$(RM) $(OBJDIR)$(PATHSEP)*.d
 	$(Q)$(RM) $(OBJDIR)$(PATHSEP)*.z
 	$(Q)$(RM) $(OBJDIR)$(PATHSEP)*.bin
-	$(Q)$(RM) version.c
+	$(Q)$(RM) version_pm3.c version.c fpga_version_info.c
 
 install: all
 	$(info [@] Installing fullimage to $(DESTDIR)$(PREFIX)...)

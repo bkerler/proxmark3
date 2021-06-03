@@ -14,6 +14,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <inttypes.h>
+#include "cliparser.h"
 #include "cmdparser.h"    // command_t
 #include "comms.h"
 #include "cmdtrace.h"
@@ -21,7 +22,7 @@
 #include "ui.h"
 #include "crc16.h"
 #include "protocols.h"
-#include "mifare/ndef.h"
+#include "nfc/ndef.h"
 
 #define TOPAZ_STATIC_MEMORY (0x0f * 8)  // 15 blocks with 8 Bytes each
 
@@ -53,11 +54,9 @@ static void topaz_switch_off_field(void) {
 
 // send a raw topaz command, returns the length of the response (0 in case of error)
 static int topaz_send_cmd_raw(uint8_t *cmd, uint8_t len, uint8_t *response, uint16_t *response_len, bool verbose) {
-    SendCommandOLD(CMD_HF_ISO14443A_READER, ISO14A_RAW | ISO14A_NO_DISCONNECT | ISO14A_TOPAZMODE | ISO14A_NO_RATS, len, 0, cmd, len);
-
+    SendCommandMIX(CMD_HF_ISO14443A_READER, ISO14A_RAW | ISO14A_NO_DISCONNECT | ISO14A_TOPAZMODE | ISO14A_NO_RATS, len, 0, cmd, len);
     PacketResponseNG resp;
-
-    if (!WaitForResponseTimeout(CMD_ACK, &resp, 1500)) {
+    if (WaitForResponseTimeout(CMD_ACK, &resp, 1500) == false) {
         if (verbose) PrintAndLogEx(WARNING, "timeout while waiting for reply.");
         return PM3_ETIMEOUT;
     }
@@ -393,21 +392,42 @@ static int topaz_print_NDEF(uint8_t *data, size_t maxsize) {
 }
 
 static int CmdHFTopazReader(const char *Cmd) {
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "hf topaz reader",
+                  "Read UID from Topaz tags",
+                  "hf topaz reader");
 
-    bool verbose = true;
-    char ctmp = tolower(param_getchar(Cmd, 0));
-    if (ctmp == 's') verbose = false;
+    void *argtable[] = {
+        arg_param_begin,
+        arg_lit0("v", "verbose", "verbose output"),
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, true);
+
+    bool verbose = arg_get_lit(ctx, 1);
+
+    CLIParserFree(ctx);
 
     return readTopazUid(verbose);
 }
 
 // read a Topaz tag and print some useful information
-static int CmdHFTopazInfo(const char *Cmd) {
+int CmdHFTopazInfo(const char *Cmd) {
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "hf topaz info",
+                  "Get info from Topaz tags",
+                  "hf topaz info");
 
-    bool verbose = true;
-    char ctmp = tolower(param_getchar(Cmd, 0));
-    if (ctmp == 's') verbose = false;
+    void *argtable[] = {
+        arg_param_begin,
+        arg_lit0("v", "verbose", "verbose output"),
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, true);
 
+    bool verbose = arg_get_lit(ctx, 1);
+
+    CLIParserFree(ctx);
 
     int status = readTopazUid(verbose);
     if (status != PM3_SUCCESS)
@@ -469,20 +489,58 @@ static int CmdHFTopazInfo(const char *Cmd) {
 }
 
 static int CmdHFTopazSim(const char *Cmd) {
-    (void)Cmd; // Cmd is not used so far
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "hf topaz sim",
+                  "Simulate a Topaz tag",
+                  "hf topaz sim   -> Not yet implemented");
+
+    void *argtable[] = {
+        arg_param_begin,
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, true);
+    CLIParserFree(ctx);
     PrintAndLogEx(INFO, "not yet implemented");
     return PM3_SUCCESS;
 }
 
 static int CmdHFTopazCmdRaw(const char *Cmd) {
-    (void)Cmd; // Cmd is not used so far
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "hf topaz raw",
+                  "Send raw hex data to Topaz tags",
+                  "hf topaz raw   -> Not yet implemented");
+
+    void *argtable[] = {
+        arg_param_begin,
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, true);
+    CLIParserFree(ctx);
+
     PrintAndLogEx(INFO, "not yet implemented. Use hf 14 raw with option -T.");
     return PM3_SUCCESS;
 }
 
 static int CmdHFTopazList(const char *Cmd) {
-    (void)Cmd; // Cmd is not used so far
-    CmdTraceList("topaz");
+    return CmdTraceListAlias(Cmd, "hf topaz", "topaz");
+}
+
+static int CmdHFTopazSniff(const char *Cmd) {
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "hf topaz sniff",
+                  "Sniff Topaz reader-tag communication",
+                  "hf topaz sniff");
+
+    void *argtable[] = {
+        arg_param_begin,
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, true);
+    CLIParserFree(ctx);
+
+    uint8_t param = 0;
+    SendCommandNG(CMD_HF_ISO14443A_SNIFF, (uint8_t *)&param, sizeof(uint8_t));
+
     return PM3_SUCCESS;
 }
 
@@ -494,7 +552,7 @@ static command_t CommandTable[] = {
     {"info",    CmdHFTopazInfo,     IfPm3Iso14443a,   "Tag information"},
     {"reader",  CmdHFTopazReader,   IfPm3Iso14443a,   "Act like a Topaz reader"},
     {"sim",     CmdHFTopazSim,      IfPm3Iso14443a,   "<UID> -- Simulate Topaz tag"},
-    {"sniff",   CmdHF14ASniff,      IfPm3Iso14443a,   "Sniff Topaz reader-tag communication"},
+    {"sniff",   CmdHFTopazSniff,    IfPm3Iso14443a,   "Sniff Topaz reader-tag communication"},
     {"raw",     CmdHFTopazCmdRaw,   IfPm3Iso14443a,   "Send raw hex data to tag"},
     {NULL,      NULL,               0, NULL}
 };
@@ -548,7 +606,6 @@ int readTopazUid(bool verbose) {
     // printing
     PrintAndLogEx(NORMAL, "");
     PrintAndLogEx(INFO, "--- " _CYAN_("Tag Information") " ---------------------------");
-    PrintAndLogEx(INFO, "-------------------------------------------------------------");
     PrintAndLogEx(SUCCESS, "  UID: %02x %02x %02x %02x %02x %02x %02x",
                   topaz_tag.uid[6],
                   topaz_tag.uid[5],
